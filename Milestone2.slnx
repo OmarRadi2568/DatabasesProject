@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="Milestone2.sqlproj">
+    <Build />
+    <Deploy />
+  </Project>
+</Solution>
