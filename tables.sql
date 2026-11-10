@@ -1,18 +1,4 @@
-/* =====================================================================
-   GCAIMP - Milestone 2
-   Tables.sql  (Microsoft SQL Server)
-   Run order: Tables.sql -> Insertions.sql -> Procedures.sql -> Executions.sql
-   ===================================================================== */
 
--- Uncomment the next two lines if you want to create a fresh database
--- CREATE DATABASE GCAIMP;
--- GO
--- USE GCAIMP;
--- GO
-
-/* ---------------------------------------------------------------------
-   0. Clean re-run support (drops everything in dependency order)
-   --------------------------------------------------------------------- */
 IF OBJECT_ID('FK_Faculty_Dean', 'F') IS NOT NULL
     ALTER TABLE Faculty DROP CONSTRAINT FK_Faculty_Dean;
 GO
