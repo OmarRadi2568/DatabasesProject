@@ -3,9 +3,9 @@ IF OBJECT_ID('AddAcademicMember', 'P') IS NOT NULL
     DROP PROCEDURE AddAcademicMember;
 GO
 
-CREATE PROCEDURE AddAcademicMember
+CREATE OR ALTER PROCEDURE AddAcademicMember
     @FullName VARCHAR(150),
-    @UniversityIDNo VARCHAR(55),
+    @UniversityIDNo VARCHAR(50),
     @Email VARCHAR(150),
     @Phone VARCHAR(50),
     @AcademicRank VARCHAR(50),
@@ -15,6 +15,37 @@ CREATE PROCEDURE AddAcademicMember
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    BEGIN TRY 
+    IF EXISTS(SELECT 1 FROM Academic_Member WHERE UniversityIDNo = @UniversityIDNo)
+    BEGIN
+        SELECT 'A member with this ID already exists' AS ConfirmationMessage; RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Academic_Member WHERE Email = @Email)
+    BEGIN
+        SELECT 'A member with this Email already exists' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @FullName IS NULL OR @FullName = ''
+    BEGIN 
+        SELECT 'Name cannot be Null' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @UniversityIDNo IS NULL OR @UniversityIDNo = ''
+    BEGIN 
+        SELECT 'ID cannot be NULL' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @Email IS NULL OR @Email = ''
+    BEGIN
+        SELECT 'E-mail cannot be NULL' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @Email NOT LIKE '%@%' 
+    BEGIN
+        SELECT 'Wrong E-mail format'
+    END
 
     INSERT INTO Academic_Member (
         FullName, UniversityIDNo, Email, Phone, 
@@ -26,6 +57,12 @@ BEGIN
     );
 
     SELECT 'Academic member added successfully.' AS ConfirmationMessage, SCOPE_IDENTITY() AS NewMemberID;
+
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -186,6 +223,13 @@ CREATE PROCEDURE AssignReviewerRole
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    BEGIN TRY
+    IF NOT EXISTS (SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
+    BEGIN 
+        SELECT 'Academic Member Doesnt Exist' AS ConfirmationMessage;
+    END
+
 
    
     INSERT INTO Curriculum_Reviewer (
@@ -370,14 +414,14 @@ BEGIN
         Title, 
         CourseDescription, 
         CreditHours, 
-        CourseLevel, 
+        CourseLevel
     )
     VALUES (
         @CourseCode, 
         @Title, 
         @CourseDescription, 
         @CreditHours, 
-        @CourseLevel, 
+        @CourseLevel
     );
 
     IF @CourseType = 'Core'
