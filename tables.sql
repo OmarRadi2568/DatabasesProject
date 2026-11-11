@@ -1,25 +1,11 @@
-/* =====================================================================
-   GCAIMP - Milestone 2
-   Tables.sql  (Microsoft SQL Server)
-   Run order: Tables.sql -> Insertions.sql -> Procedures.sql -> Executions.sql
-   ===================================================================== */
 
--- Uncomment the next two lines if you want to create a fresh database
--- CREATE DATABASE GCAIMP;
--- GO
--- USE GCAIMP;
--- GO
-
-/* ---------------------------------------------------------------------
-   0. Clean re-run support (drops everything in dependency order)
-   --------------------------------------------------------------------- */
 IF OBJECT_ID('FK_Faculty_Dean', 'F') IS NOT NULL
     ALTER TABLE Faculty DROP CONSTRAINT FK_Faculty_Dean;
 GO
 
 DROP TABLE IF EXISTS Audit_Log;
 DROP TABLE IF EXISTS Notification_Recipient;
-DROP TABLE IF EXISTS Notification;
+DROP TABLE IF EXISTS [Notification];
 DROP TABLE IF EXISTS Review_Evidence;
 DROP TABLE IF EXISTS Review_Assessment;
 DROP TABLE IF EXISTS Review_Mapping;
@@ -221,7 +207,7 @@ GO
 CREATE TABLE PLO (
     ProgramID INT           NOT NULL,
     PLOCode   VARCHAR(20)   NOT NULL,
-    Statement VARCHAR(1000) NOT NULL,
+    PLOStatement VARCHAR(1000) NOT NULL,
     Category  VARCHAR(50)   NULL,
     CONSTRAINT PK_PLO PRIMARY KEY (ProgramID, PLOCode),
     CONSTRAINT FK_PLO_Program FOREIGN KEY (ProgramID) REFERENCES Program(ProgramID)
@@ -300,7 +286,7 @@ GO
 CREATE TABLE ILO (
     CourseCode     VARCHAR(20)   NOT NULL,
     ILOCode        VARCHAR(20)   NOT NULL,
-    Statement      VARCHAR(1000) NOT NULL,
+    ILOStatement      VARCHAR(1000) NOT NULL,
     CognitiveLevel VARCHAR(50)   NULL,
     CONSTRAINT PK_ILO PRIMARY KEY (CourseCode, ILOCode),
     CONSTRAINT FK_ILO_Course FOREIGN KEY (CourseCode) REFERENCES Course(CourseCode)
@@ -511,7 +497,7 @@ GO
 
 CREATE TABLE AI_Tool (
     ToolID       INT          NOT NULL,
-    Provider     VARCHAR(150) NULL,
+    ToolProvider     VARCHAR(150) NULL,
     ModelVersion VARCHAR(50)  NULL,
     LicenseType  VARCHAR(50)  NULL,
     HostingMode  VARCHAR(50)  NULL,
@@ -625,7 +611,7 @@ GO
 
 CREATE TABLE Online_Training (
     SessionID          INT           NOT NULL,
-    Platform           VARCHAR(50)   NULL,
+    TrainingPlatform           VARCHAR(50)   NULL,
     MeetingLink        VARCHAR(1000) NULL,
     RecordingAvailable BIT           NOT NULL CONSTRAINT DF_OT_Rec DEFAULT 0,
     CONSTRAINT PK_Online_Training PRIMARY KEY (SessionID),

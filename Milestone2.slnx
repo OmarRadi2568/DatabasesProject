@@ -1,5 +1,5 @@
 <Solution>
-  <Project Path="Milestone2.sqlproj">
+  <Project Path="Milestone2.sqlproj" Id="b356896d-f89b-4574-91dc-a32dfc9cb161">
     <Build />
     <Deploy />
   </Project>
