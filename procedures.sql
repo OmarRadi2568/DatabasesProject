@@ -476,74 +476,86 @@ BEGIN
 END;
 GO
 
-CREATE PROCEDURE RevokeAccessScope
+CREATE OR ALTER PROCEDURE RevokeAccessScope
     @MemberID INT,
     @AccessScope VARCHAR(50)
 AS
 BEGIN
     SET NOCOUNT ON;
 
+    BEGIN TRY
+    IF NOT EXISTS (SELECT 1 FROM Member_Access_Scope WHERE MemberID = @MemberID AND AccessScope = @AccessScope)
+    BEGIN
+        SELECT 'Member doesnt hold such access scope' AS ConfirmationMessage;RETURN;
+    END
+
     DELETE FROM Member_Access_Scope
     WHERE MemberID = @MemberID AND AccessScope = @AccessScope;
 
     SELECT 'Access scope revoked successfully.' AS ConfirmationMessage;
+
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+        
 END;
 GO
 
 CREATE OR ALTER PROCEDURE AddFaculty
     @Name VARCHAR(150),
-    @Description VARCHAR(1000), 
+    @Description VARCHAR(1000),
     @EstablishmentDate DATE,
     @DeanID INT
-
 AS
 BEGIN
     SET NOCOUNT ON;
 
     BEGIN TRY
-        IF EXISTS (SELECT 1 FROM Faculty WHERE FacultyName = @Name)
-        BEGIN 
-            SELECT 'Error: a faculty with this name already exists.' AS ConfirmationMessage; RETURN; 
+        IF @Name IS NULL OR @Name = ''
+        BEGIN
+            SELECT 'Error: faculty name cannot be NULL or blank.' AS ConfirmationMessage; RETURN;
         END
 
-        IF @DEAN IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Dean WHERE MemeberID = @DeanID)
+        IF EXISTS (SELECT 1 FROM Faculty WHERE FacultyName = @Name)
+        BEGIN
+            SELECT 'Error: a faculty with this name already exists.' AS ConfirmationMessage; RETURN;
+        END
+
+        IF @DeanID IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Dean WHERE MemberID = @DeanID)
         BEGIN
             SELECT 'Error: Dean doesnt exist' AS ConfirmationMessage; RETURN;
         END
 
-        IF @DEAN IS NOT NULL AND EXISTS (SELECT 1 FROM Faculty WHERE DeanID  = @DeanID)
-        BEGIN 
+        IF @DeanID IS NOT NULL AND EXISTS (SELECT 1 FROM Faculty WHERE DeanID = @DeanID)
+        BEGIN
             SELECT 'Error: This person is already a Dean of a faculty' AS ConfirmationMessage; RETURN;
         END
 
-    
+        INSERT INTO Faculty (
+            FacultyName,
+            FacultyDescription,
+            EstablishmentDate,
+            DeanID
+        )
+        VALUES (
+            @Name,
+            @Description,
+            @EstablishmentDate,
+            @DeanID
+        );
 
+        SELECT 'Faculty added successfully.' AS ConfirmationMessage, SCOPE_IDENTITY() AS NewFacultyID;
+    END TRY
 
-    INSERT INTO Faculty(
-        FacultyName,
-        FacultyDescription,
-        EstablishmentDate,
-        DeanID
-    )
-
-    VALUES(
-        @Name,
-        @Description,
-        @EstablishmentDate,
-        @DeanID
-    );
-
-     SELECT 'Faculty added successfully.' AS ConfirmationMessage, SCOPE_IDENTITY() AS NewFacultyID;
-
-     END TRY
-
-     BEGIN CATCH
+    BEGIN CATCH
         SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
-     END CATCH
+    END CATCH
 END;
 GO
 
-CREATE PROCEDURE AddProgram
+CREATE OR ALTER PROCEDURE AddProgram
     @ProgramName VARCHAR(150),
     @DegreeLevel VARCHAR(50),
     @TotalCreditHours INT,
@@ -554,6 +566,27 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    BEGIN TRY
+
+    IF @ProgramName IS NULL or @ProgramName = ''
+    BEGIN
+        SELECT 'Program name cannot be Null or blank' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @FacultyID IS NULL
+    BEGIN
+        SELECT 'Faculty ID cannot be Null' AS ConfirmationMessage; RETURN;
+    END
+
+    IF NOT EXISTS (SELECT 1 FROM Faculty WHERE FacultyID = @FacultyID)
+    BEGIN 
+        SELECT 'Faculty doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @TotalCreditHours <= 0
+    BEGIN 
+        SELECT 'Invalid Credit hours value' AS ConfirmationMessage; RETURN;
+    END
     
     INSERT INTO Program (
         ProgramName, 
@@ -572,10 +605,17 @@ BEGIN
         @FacultyID
     );
 
-   
-    SELECT 
-        'Program added successfully.' AS ConfirmationMessage,
+    SELECT 'Program added successfully.' AS ConfirmationMessage,
         SCOPE_IDENTITY() AS NewProgramID;
+
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+
+   
+
 END;
 GO
 
@@ -596,7 +636,17 @@ BEGIN
     
     BEGIN TRY
 
-    IF @CourseType NOT IN ('Core', 'Elective')
+    IF @CourseCode IS NULL OR @CourseCode = ''
+    BEGIN
+        SELECT 'Course code cannot be NULL or blank' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @Title IS NULL OR @Title = ''
+    BEGIN
+        SELECT 'Title cannot be NULL or blank' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @CourseType IS NULL OR @CourseType NOT IN ('Core', 'Elective')
     BEGIN
         SELECT 'Course must be either Core or Elective' AS ConfirmationMessage; RETURN; 
     END
@@ -647,15 +697,15 @@ BEGIN
 
     END TRY
     BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK
-        SELECT 'Error' + ERROR_MESSAGE() AS ConfirmationMessage;
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
 
     END CATCH
 
 END;
 GO
 
-CREATE PROCEDURE AddCourseRequisite
+CREATE OR ALTER PROCEDURE AddCourseRequisite
     @CourseCode VARCHAR(20),
     @RequisiteCode VARCHAR(20),
     @RequisiteType VARCHAR(50)
@@ -663,6 +713,31 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    BEGIN TRY
+    IF NOT EXISTS(SELECT 1 FROM Course WHERE CourseCode = @CourseCode)
+    BEGIN 
+        SELECT 'Course doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Course WHERE CourseCode = @RequisiteCode)
+    BEGIN 
+        SELECT 'Course doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Course WHERE CourseCode = @RequisiteCode AND CourseCode = @CourseCode)
+    BEGIN 
+        SELECT 'Course cannot be a requisite to itself' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @RequisiteType IS NULL OR @RequisiteType NOT IN ('Prerequisite', 'Corequisite')
+    BEGIN
+        SELECT 'Requisite type must be Prerequisite or Corequisite' AS ConfirmationMessage; RETURN;
+    END
+
+    IF EXISTS (SELECT 1 FROM Course_Requisite WHERE CourseCode = @CourseCode AND RequisiteCode = @RequisiteCode)
+    BEGIN
+        SELECT 'This requisite link already exists' AS ConfirmationMessage; RETURN;
+    END
     
     INSERT INTO Course_Requisite (
         CourseCode, 
@@ -676,6 +751,12 @@ BEGIN
     );
 
     SELECT 'Course requisite added successfully.' AS ConfirmationMessage;
+
+    END TRY
+
+    BEGIN CATCH
+    SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+END CATCH
 END;
 GO
 
