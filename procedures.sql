@@ -89,11 +89,40 @@ CREATE PROCEDURE UpdateMemberContactInfo
     BEGIN 
         SET NOCOUNT ON;
 
+        BEGIN TRY
+            IF NOT EXISTS(SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
+            BEGIN
+                SELECT 'Member does not exist.' AS ErrorMessage; RETURN; 
+            END
+
+            IF @Email IS NULL OR @Email = ''
+            BEGIN
+                SELECT 'E-mail cannot be NULL' AS ErrorMessage;RETURN;
+            END 
+
+            IF EXISTS(SELECT 1 FROM Academic_Member WHERE @MemberID <> MemberID AND @EMAIL = Email)
+            BEGIN
+                SELECT 'Email already in use.' AS ErrorMessage; RETURN;
+            END
+
+            IF @Email NOT LIKE '%@%' 
+            BEGIN
+                SELECT 'Wrong E-mail format'
+            END
+            
+
+
         UPDATE Academic_Member
         SET Email = @Email, Phone = @Phone
         WHERE MemberID = @MemberID;
 
         SELECT 'Contact information updated successfully.' AS ConfirmationMessage;
+
+        END TRY
+
+        BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+        END CATCH
     END;
     GO
 
@@ -101,15 +130,40 @@ CREATE PROCEDURE UpdateAccountStatus
     @MemberID INT,
     @AccountStatus VARCHAR(50)
 
+
     AS
     BEGIN
         SET NOCOUNT ON
+
+        BEGIN TRY
+
+        IF NOT EXISTS(SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
+        BEGIN
+            SELECT 'Member does not exist.' AS ErrorMessage; RETURN; 
+        END
+
+        IF @AccountStatus IS NULL OR @AccountStatus = ''
+        BEGIN
+            SELECT 'Account status cannot be NULL' AS ErrorMessage;RETURN;
+        END
+
+         IF EXISTS(SELECT 1 FROM Academic_Member WHERE @MemberID <> MemberID AND @AccountStatus = AccountStatus)
+         BEGIN
+             SELECT 'Status already assigned.' AS ErrorMessage; RETURN;
+         END
 
         UPDATE Academic_Member
         SET AccountStatus = @AccountStatus
         WHERE MemberID = @MemberID;
 
+
         SELECT 'Account status updated successfully.' AS ConfirmationMessage;
+        END TRY
+
+        BEGIN CATCH
+            SELECT 'Error: ' + ERROR_MESSAGE() AS ErrorMessage;
+        END CATCH
+            
     END;
     GO
 
