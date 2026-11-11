@@ -275,7 +275,7 @@ BEGIN
 END;
 GO
 
-CREATE PROCEDURE AssignDean
+CREATE OR ALTER PROCEDURE AssignDean
     @MemberID INT,
     @FacultyID INT,
     @ApprovalAuthorityScope VARCHAR(150)
@@ -283,7 +283,35 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
+    BEGIN
+        SELECT 'Not an academic member' AS ConfirmationMessage;RETURN;
+    END
     
+    IF NOT EXISTS(SELECT 1 FROM Faculty WHERE FacultyID = @FacultyID)
+    BEGIN
+        SELECT 'Not a faculty' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Faculty WHERE DeanID IS NOT NULL)
+    BEGIN
+        SELECT 'Dean already exists' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Faculty WHERE DeanID = @MemberID)
+    BEGIN
+        SELECT 'Dean already assigned to a faculty' AS ConfirmationMessage;RETURN;
+    END
+
+
+
+
+
+
+    BEGIN TRAN;
+
     INSERT INTO Dean (
         MemberID, 
         FacultyID, 
@@ -295,11 +323,19 @@ BEGIN
         @ApprovalAuthorityScope
     );
 
+    COMMIT;
+
     SELECT 'Dean assigned successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
-CREATE PROCEDURE AssignManagementRole
+CREATE OR ALTER PROCEDURE AssignManagementRole
     @MemberID INT,
     @ManagementTitle VARCHAR(150),
     @DecisionAuthorityLevel VARCHAR(50),
@@ -308,6 +344,17 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
+    BEGIN
+        SELECT 'Not an academic member' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM University_Management WHERE MemberID = @MemberID)
+    BEGIN
+        SELECT 'Member already exists' AS ConfirmationMessage;RETURN;
+    END
     
     INSERT INTO University_Management (
         MemberID,
@@ -323,6 +370,12 @@ BEGIN
     );
 
     SELECT 'University management role assigned successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+        
 END;
 GO
 
@@ -338,10 +391,25 @@ BEGIN
     BEGIN TRY
     IF NOT EXISTS (SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
     BEGIN 
-        SELECT 'Academic Member Doesnt Exist' AS ConfirmationMessage;
+        SELECT 'Academic Member Doesnt Exist' AS ConfirmationMessage;RETURN;
     END
 
+    IF @CommitteeMembership IS NULL OR  @CommitteeMembership = ''
+    BEGIN
+        SELECT 'CommitteeMembership cannot be empty' AS ConfirmationMessage;RETURN;
+    END
+    
+    IF EXISTS(SELECT 1 FROM Curriculum_Reviewer WHERE MemberID = @MemberID)
+    BEGIN
+        SELECT 'Memeber is already a curriculum reviewer' AS ConfirmationMessage;RETURN;
+    END
 
+    IF EXISTS(SELECT 1 FROM Reviewer_Committee WHERE MemberID = @MemberID)
+    BEGIN
+        SELECT 'Member is already part of the committee' AS ConfirmationMessage;RETURN;
+    END
+
+    BEGIN TRAN;
    
     INSERT INTO Curriculum_Reviewer (
         MemberID,
@@ -356,16 +424,43 @@ BEGIN
         @CommitteeMembership
     );
 
+    COMMIT;
+
     SELECT 'Curriculum reviewer role assigned successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+    
 END;
 GO
 
-CREATE PROCEDURE GrantAccessScope
+CREATE OR ALTER PROCEDURE GrantAccessScope
     @MemberID INT,
     @AccessScope VARCHAR(50)
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
+    BEGIN
+        SELECT 'Not an academic member' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @AccessScope IS NULL OR @AccessScope = ''
+    BEGIN
+        SELECT 'Access scope cannot be NULL' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Member_Access_Scope WHERE MemberID = @MemberID AND AccessScope = @AccessScope)
+    BEGIN
+        SELECT 'Member already holds this scope' AS ConfirmationMessage;RETURN;
+    END
+
 
     
     INSERT INTO Member_Access_Scope (
@@ -378,6 +473,11 @@ BEGIN
     );
 
     SELECT 'Access scope granted successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
