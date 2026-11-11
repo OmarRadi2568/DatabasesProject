@@ -240,7 +240,7 @@ BEGIN
 END;
 GO
 
-CREATE PROCEDURE AddFaculty
+CREATE OR ALTER PROCEDURE AddFaculty
     @Name VARCHAR(150),
     @Description VARCHAR(1000), 
     @EstablishmentDate DATE,
@@ -250,21 +250,46 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    BEGIN TRY
+        IF EXISTS (SELECT 1 FROM Faculty WHERE FacultyName = @Name)
+        BEGIN 
+            SELECT 'Error: a faculty with this name already exists.' AS ConfirmationMessage; RETURN; 
+        END
+
+        IF @DEAN IS NOT NULL AND NOT EXISTS (SELECT 1 FROM Dean WHERE MemeberID = @DeanID)
+        BEGIN
+            SELECT 'Error: Dean doesnt exist' AS ConfirmationMessage; RETURN;
+        END
+
+        IF @DEAN IS NOT NULL AND EXISTS (SELECT 1 FROM Faculty WHERE DeanID  = @DeanID)
+        BEGIN 
+            SELECT 'Error: This person is already a Dean of a faculty' AS ConfirmationMessage; RETURN;
+        END
+
+    
+
+
     INSERT INTO Faculty(
         FacultyName,
-        FacultyFacDescription,
+        FacultyDescription,
         EstablishmentDate,
         DeanID
     )
 
     VALUES(
-        @FacultyName,
-        @FacultyDescription,
+        @Name,
+        @Description,
         @EstablishmentDate,
         @DeanID
     );
 
-    SELECT ' New faculty addedsuccessfully.' AS ConfirmationMessage;
+     SELECT 'Faculty added successfully.' AS ConfirmationMessage, SCOPE_IDENTITY() AS NewFacultyID;
+
+     END TRY
+
+     BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+     END CATCH
 END;
 GO
 
