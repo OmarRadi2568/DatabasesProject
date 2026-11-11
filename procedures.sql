@@ -80,7 +80,7 @@ RETURN
 );
 GO
 
-CREATE PROCEDURE UpdateMemberContactInfo
+CREATE OR ALTER PROCEDURE UpdateMemberContactInfo
     @MemberID INT,
     @Email VARCHAR(150),
     @Phone VARCHAR(50)
@@ -107,7 +107,7 @@ CREATE PROCEDURE UpdateMemberContactInfo
 
             IF @Email NOT LIKE '%@%' 
             BEGIN
-                SELECT 'Wrong E-mail format'
+                SELECT 'Wrong E-mail format' AS ErrorMessage;RETURN;
             END
             
 
@@ -126,7 +126,7 @@ CREATE PROCEDURE UpdateMemberContactInfo
     END;
     GO
 
-CREATE PROCEDURE UpdateAccountStatus
+CREATE OR ALTER PROCEDURE UpdateAccountStatus
     @MemberID INT,
     @AccountStatus VARCHAR(50)
 
@@ -139,17 +139,17 @@ CREATE PROCEDURE UpdateAccountStatus
 
         IF NOT EXISTS(SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
         BEGIN
-            SELECT 'Member does not exist.' AS ErrorMessage; RETURN; 
+            SELECT 'Member does not exist.' AS ConfirmationMessage; RETURN; 
         END
 
         IF @AccountStatus IS NULL OR @AccountStatus = ''
         BEGIN
-            SELECT 'Account status cannot be NULL' AS ErrorMessage;RETURN;
+            SELECT 'Account status cannot be NULL' AS ConfirmationMessage;RETURN;
         END
 
          IF EXISTS(SELECT 1 FROM Academic_Member WHERE @MemberID <> MemberID AND @AccountStatus = AccountStatus)
          BEGIN
-             SELECT 'Status already assigned.' AS ErrorMessage; RETURN;
+             SELECT 'Status already assigned.' AS ConfirmationMessage; RETURN;
          END
 
         UPDATE Academic_Member
@@ -161,13 +161,13 @@ CREATE PROCEDURE UpdateAccountStatus
         END TRY
 
         BEGIN CATCH
-            SELECT 'Error: ' + ERROR_MESSAGE() AS ErrorMessage;
+            SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
         END CATCH
             
     END;
     GO
 
-CREATE PROCEDURE AssignInstructorRole
+CREATE OR ALTER PROCEDURE AssignInstructorRole
     @MemberID INT,
     @ResearchArea VARCHAR(150),
     @OfficeLocation VARCHAR(50),
@@ -175,6 +175,23 @@ CREATE PROCEDURE AssignInstructorRole
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    BEGIN TRY
+    IF EXISTS(SELECT 1 FROM Academic_Instructor WHERE MemberID = @MemberID)
+    BEGIN 
+        SELECT 'Already an instructor' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @TeachingLoad < 0
+    BEGIN 
+        SELECT 'Teaching load cannot be negative' AS ConfirmationMessage;RETURN;
+    END
+    
+    IF NOT EXISTS(SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
+    BEGIN
+        SELECT 'Not an academic member' AS ConfirmationMessage;RETURN;
+    END
+
 
     
     INSERT INTO Academic_Instructor (
@@ -191,16 +208,51 @@ BEGIN
     );
 
     SELECT 'Academic instructor role assigned successfully.' AS ConfirmationMessage;
+
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+
 END;
 GO
 
-CREATE PROCEDURE AssignTeachingAssistantRole
+CREATE OR ALTER PROCEDURE AssignTeachingAssistantRole
     @MemberID INT,
     @AssistantLevel VARCHAR(50),
     @SupervisorID INT
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
+    BEGIN
+        SELECT 'Not an academic member' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @SupervisorID IS NULL OR @SupervisorID = ''
+    BEGIN
+        SELECT 'SupervisorID cannot be null' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @MemberID = @SupervisorID
+    BEGIN
+        SELECT 'A TA cannot supervise themselves' AS ConfirmationMessage;RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Academic_Instructor WHERE MemberID = @SupervisorID)
+    BEGIN
+        SELECT 'Supervisor is not an instructor' AS ConfirmationMessage; RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Teaching_Assistant WHERE MemberID = @MemberID)
+    BEGIN 
+        SELECT 'Already a TA' AS ConfirmationMessage; RETURN;
+    END
+
 
    
     INSERT INTO Teaching_Assistant (
@@ -215,6 +267,11 @@ BEGIN
     );
 
     SELECT 'Teaching assistant role assigned successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH 
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
