@@ -16,7 +16,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    INSERT INTO AcademicMember (
+    INSERT INTO Academic_Member (
         FullName, UniversityIDNo, Email, Phone, 
         AcademicRank, EmploymentStatus, AccountStatus, FacultyID
     )
@@ -38,7 +38,7 @@ AS
 RETURN
 (
     SELECT *
-    FROM AcademicMember
+    FROM Academic_Member
     WHERE MemberID = @MemberID
 );
 GO
@@ -52,7 +52,7 @@ CREATE PROCEDURE UpdateMemberContactInfo
     BEGIN 
         SET NOCOUNT ON;
 
-        UPDATE AcademicMember
+        UPDATE Academic_Member
         SET Email = @Email, Phone = @Phone
         WHERE MemberID = @MemberID;
 
@@ -68,7 +68,7 @@ CREATE PROCEDURE UpdateAccountStatus
     BEGIN
         SET NOCOUNT ON
 
-        UPDATE AcademicMember
+        UPDATE Academic_Member
         SET AccountStatus = @AccountStatus
         WHERE MemberID = @MemberID;
 
@@ -86,7 +86,7 @@ BEGIN
     SET NOCOUNT ON;
 
     
-    INSERT INTO AcademicInstructor (
+    INSERT INTO Academic_Instructor (
         MemberID, 
         ResearchArea, 
         OfficeLocation, 
@@ -112,7 +112,7 @@ BEGIN
     SET NOCOUNT ON;
 
    
-    INSERT INTO TeachingAssistant (
+    INSERT INTO Teaching_Assistant (
         MemberID,
         AssistantLevel, 
         SupervisorID
@@ -161,7 +161,7 @@ BEGIN
     SET NOCOUNT ON;
 
     
-    INSERT INTO UniversityManagement (
+    INSERT INTO University_Management (
         MemberID,
         ManagementTitle, 
         DecisionAuthorityLevel, 
@@ -188,7 +188,7 @@ BEGIN
     SET NOCOUNT ON;
 
    
-    INSERT INTO CurriculumReviewer (
+    INSERT INTO Curriculum_Reviewer (
         MemberID,
         ReviewDomain, 
         ReviewAuthorityLevel, 
@@ -213,7 +213,7 @@ BEGIN
     SET NOCOUNT ON;
 
     
-    INSERT INTO MemberAccessScope (
+    INSERT INTO Member_Access_Scope (
         MemberID, 
         AccessScope
     )
@@ -233,7 +233,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    DELETE FROM MemberAccessScope
+    DELETE FROM Member_Access_Scope
     WHERE MemberID = @MemberID AND AccessScope = @AccessScope;
 
     SELECT 'Access scope revoked successfully.' AS ConfirmationMessage;
@@ -358,7 +358,7 @@ BEGIN
     SET NOCOUNT ON;
 
     
-    INSERT INTO CourseRequisite (
+    INSERT INTO Course_Requisite (
         CourseCode, 
         RequisiteCode, 
         RequisiteType
@@ -412,7 +412,7 @@ BEGIN
     SET NOCOUNT ON;
 
    
-    INSERT INTO DeanTerm (
+    INSERT INTO Dean_Term (
         DeanID, 
         SemesterID
     )
@@ -437,7 +437,7 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
-    INSERT INTO CourseOffering (
+    INSERT INTO Course_Offering (
         CourseCode, 
         SemesterID, 
         SectionID, 
@@ -607,7 +607,7 @@ RETURN
         COUNT(DISTINCT m.MemberID) AS MemberCount
     FROM Faculty f
     JOIN Academic_Member m ON f.FacultyID = m.FacultyID
-    JOIN Instructor i ON m.MemberID = i.MemberID
+    JOIN Academic_Instructor i ON m.MemberID = i.MemberID
     GROUP BY f.FacultyName
 
     UNION ALL
@@ -656,3 +656,5 @@ RETURN
 
 );
 GO
+
+
