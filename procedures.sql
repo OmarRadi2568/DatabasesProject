@@ -289,15 +289,15 @@ BEGIN
     BEGIN
         SELECT 'Not an academic member' AS ConfirmationMessage;RETURN;
     END
-    
+
     IF NOT EXISTS(SELECT 1 FROM Faculty WHERE FacultyID = @FacultyID)
     BEGIN
         SELECT 'Not a faculty' AS ConfirmationMessage;RETURN;
     END
 
-    IF EXISTS(SELECT 1 FROM Faculty WHERE DeanID IS NOT NULL)
+    IF EXISTS(SELECT 1 FROM Faculty WHERE FacultyID = @FacultyID AND DeanID IS NOT NULL)
     BEGIN
-        SELECT 'Dean already exists' AS ConfirmationMessage;RETURN;
+        SELECT 'Faculty already has a dean' AS ConfirmationMessage;RETURN;
     END
 
     IF EXISTS(SELECT 1 FROM Faculty WHERE DeanID = @MemberID)
@@ -305,23 +305,25 @@ BEGIN
         SELECT 'Dean already assigned to a faculty' AS ConfirmationMessage;RETURN;
     END
 
-
-
-
-
-
     BEGIN TRAN;
 
-    INSERT INTO Dean (
-        MemberID, 
-        FacultyID, 
-        ApprovalAuthorityScope
-    )
-    VALUES (
-        @MemberID, 
-        @FacultyID, 
-        @ApprovalAuthorityScope
-    );
+    IF NOT EXISTS(SELECT 1 FROM Dean WHERE MemberID = @MemberID)
+        INSERT INTO Dean (
+            MemberID,
+            ApprovalAuthorityScope
+        )
+        VALUES (
+            @MemberID,
+            @ApprovalAuthorityScope
+        );
+    ELSE
+        UPDATE Dean
+        SET ApprovalAuthorityScope = @ApprovalAuthorityScope
+        WHERE MemberID = @MemberID;
+
+    UPDATE Faculty
+    SET DeanID = @MemberID
+    WHERE FacultyID = @FacultyID;
 
     COMMIT;
 
@@ -329,7 +331,7 @@ BEGIN
     END TRY
 
     BEGIN CATCH
-        IF @@TRANCOUNT > 0 ROLLBACK
+        IF @@TRANCOUNT > 0 ROLLBACK;
         SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
     END CATCH
 END;
@@ -379,7 +381,7 @@ BEGIN
 END;
 GO
 
-CREATE PROCEDURE AssignReviewerRole
+CREATE OR ALTER PROCEDURE AssignReviewerRole
     @MemberID INT,
     @ReviewDomain VARCHAR(150),
     @ReviewAuthorityLevel VARCHAR(50),
@@ -410,19 +412,12 @@ BEGIN
     END
 
     BEGIN TRAN;
-   
-    INSERT INTO Curriculum_Reviewer (
-        MemberID,
-        ReviewDomain, 
-        ReviewAuthorityLevel, 
-        CommitteeMembership
-    )
-    VALUES (
-        @MemberID, 
-        @ReviewDomain, 
-        @ReviewAuthorityLevel, 
-        @CommitteeMembership
-    );
+
+    INSERT INTO Curriculum_Reviewer (MemberID, ReviewDomain, ReviewAuthorityLevel)
+    VALUES (@MemberID, @ReviewDomain, @ReviewAuthorityLevel);
+
+    INSERT INTO Reviewer_Committee (MemberID, CommitteeMembership)
+    VALUES (@MemberID, @CommitteeMembership);
 
     COMMIT;
 
