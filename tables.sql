@@ -1,4 +1,18 @@
+/* =====================================================================
+   GCAIMP - Milestone 2
+   Tables.sql  (Microsoft SQL Server)
+   Run order: Tables.sql -> Insertions.sql -> Procedures.sql -> Executions.sql
+   ===================================================================== */
 
+-- Uncomment the next two lines if you want to create a fresh database
+-- CREATE DATABASE GCAIMP;
+-- GO
+-- USE GCAIMP;
+-- GO
+
+/* ---------------------------------------------------------------------
+   0. Clean re-run support (drops everything in dependency order)
+   --------------------------------------------------------------------- */
 IF OBJECT_ID('FK_Faculty_Dean', 'F') IS NOT NULL
     ALTER TABLE Faculty DROP CONSTRAINT FK_Faculty_Dean;
 GO
@@ -64,12 +78,12 @@ GO
 -- (Faculty and Dean reference each other through Academic_Member).
 CREATE TABLE Faculty (
     FacultyID         INT IDENTITY(1,1) NOT NULL,
-    Name              VARCHAR(150)  NOT NULL,
-    Description       VARCHAR(1000) NULL,
+    FacultyName              VARCHAR(150)  NOT NULL,
+    FacultyDescription       VARCHAR(1000) NULL,
     EstablishmentDate DATE          NULL,
     DeanID            INT           NULL,
     CONSTRAINT PK_Faculty      PRIMARY KEY (FacultyID),
-    CONSTRAINT UQ_Faculty_Name UNIQUE (Name)
+    CONSTRAINT UQ_Faculty_Name UNIQUE (FacultyName)
 );
 GO
 
@@ -167,12 +181,12 @@ GO
 
 CREATE TABLE Semester (
     SemesterID   INT IDENTITY(1,1) NOT NULL,
-    Name         VARCHAR(50) NOT NULL,
+    SemesterName         VARCHAR(50) NOT NULL,
     AcademicYear VARCHAR(50) NOT NULL,
     StartDate    DATE        NOT NULL,
     EndDate      DATE        NOT NULL,
     CONSTRAINT PK_Semester PRIMARY KEY (SemesterID),
-    CONSTRAINT UQ_Semester_NameYear UNIQUE (Name, AcademicYear),
+    CONSTRAINT UQ_Semester_NameYear UNIQUE (SemesterName, AcademicYear),
     CONSTRAINT CK_Semester_Dates CHECK (EndDate > StartDate)
 );
 GO
@@ -192,11 +206,11 @@ GO
 
 CREATE TABLE Program (
     ProgramID         INT IDENTITY(1,1) NOT NULL,
-    Name              VARCHAR(150)  NOT NULL,
+    ProgramName              VARCHAR(150)  NOT NULL,
     DegreeLevel       VARCHAR(50)   NULL,
     TotalCreditHours  INT           NULL,
     StandardDuration  VARCHAR(50)   NULL,
-    Description       VARCHAR(1000) NULL,
+    ProgramDescription       VARCHAR(1000) NULL,
     FacultyID         INT           NOT NULL,
     CONSTRAINT PK_Program PRIMARY KEY (ProgramID),
     CONSTRAINT CK_Program_Credits CHECK (TotalCreditHours IS NULL OR TotalCreditHours > 0),
@@ -219,10 +233,10 @@ CREATE TABLE Curriculum_Version (
     VersionLabel    VARCHAR(20) NOT NULL,
     AcademicYear    VARCHAR(50) NOT NULL,
     EffectivePeriod VARCHAR(50) NULL,
-    Status          VARCHAR(50) NOT NULL CONSTRAINT DF_CV_Status DEFAULT 'Draft',
+    VersionStatus          VARCHAR(50) NOT NULL CONSTRAINT DF_CV_Status DEFAULT 'Draft',
     ApprovalDate    DATE        NULL,
     CONSTRAINT PK_Curriculum_Version PRIMARY KEY (ProgramID, VersionLabel, AcademicYear),
-    CONSTRAINT CK_CV_Status CHECK (Status IN ('Draft','Active','Archived')),
+    CONSTRAINT CK_CV_Status CHECK (VersionStatus IN ('Draft','Active','Archived')),
     CONSTRAINT FK_CV_Program FOREIGN KEY (ProgramID) REFERENCES Program(ProgramID)
 );
 GO
@@ -230,9 +244,9 @@ GO
 CREATE TABLE Course (
     CourseCode  VARCHAR(20)   NOT NULL,
     Title       VARCHAR(150)  NOT NULL,
-    Description VARCHAR(1000) NULL,
+    CourseDescription VARCHAR(1000) NULL,
     CreditHours INT           NOT NULL,
-    Level       VARCHAR(50)   NULL,
+    CourseLevel       VARCHAR(50)   NULL,
     CONSTRAINT PK_Course PRIMARY KEY (CourseCode),
     CONSTRAINT CK_Course_Credits CHECK (CreditHours > 0)
 );
@@ -299,7 +313,7 @@ CREATE TABLE Course_Offering (
     SectionID     VARCHAR(20) NOT NULL,
     DeliveryMode  VARCHAR(50) NULL,
     EnrolledCount INT         NOT NULL CONSTRAINT DF_CO_Enrolled DEFAULT 0,
-    Status        VARCHAR(50) NOT NULL CONSTRAINT DF_CO_Status DEFAULT 'Open',
+    OfferingStatus        VARCHAR(50) NOT NULL CONSTRAINT DF_CO_Status DEFAULT 'Open',
     InstructorID  INT         NOT NULL,
     CONSTRAINT PK_Course_Offering PRIMARY KEY (CourseCode, SemesterID, SectionID),
     CONSTRAINT CK_CO_Enrolled CHECK (EnrolledCount >= 0),
@@ -346,7 +360,7 @@ GO
 CREATE TABLE Outcome_Assessment (
     AssessmentID     INT IDENTITY(1,1) NOT NULL,
     Instrument       VARCHAR(150)  NOT NULL,
-    Description      VARCHAR(1000) NULL,
+    AssessmentDescription      VARCHAR(1000) NULL,
     TargetThreshold  DECIMAL(10,2) NOT NULL,
     AttainedValue    DECIMAL(10,2) NOT NULL,
     SampleSize       INT           NULL,
@@ -399,11 +413,11 @@ GO
 CREATE TABLE Innovation_Initiative (
     InitiativeID           INT IDENTITY(1,1) NOT NULL,
     Title                  VARCHAR(150)  NOT NULL,
-    Description            VARCHAR(1000) NULL,
+    InitiativeDescription            VARCHAR(1000) NULL,
     Motivation             VARCHAR(1000) NULL,
     RegistrationDate       DATE          NOT NULL CONSTRAINT DF_II_RegDate DEFAULT (CAST(GETDATE() AS DATE)),
     ImplementationDeadline DATE          NULL,
-    Status                 VARCHAR(50)   NOT NULL CONSTRAINT DF_II_Status DEFAULT 'Draft',
+    InitiativeStatus                 VARCHAR(50)   NOT NULL CONSTRAINT DF_II_Status DEFAULT 'Draft',
     CourseCode             VARCHAR(20)   NOT NULL,
     SemesterID             INT           NOT NULL,
     SectionID              VARCHAR(20)   NOT NULL,
@@ -412,7 +426,7 @@ CREATE TABLE Innovation_Initiative (
     TargetStartSemesterID  INT           NULL,
     AssessmentID           INT           NULL,
     CONSTRAINT PK_Innovation_Initiative PRIMARY KEY (InitiativeID),
-    CONSTRAINT CK_II_Status CHECK (Status IN ('Draft','Pending Approval','Approved','Rejected',
+    CONSTRAINT CK_II_Status CHECK (InitiativeStatus IN ('Draft','Pending Approval','Approved','Rejected',
                                               'Returned for Revision','Escalated','In Progress','Completed')),
     CONSTRAINT FK_II_Offering FOREIGN KEY (CourseCode, SemesterID, SectionID)
         REFERENCES Course_Offering(CourseCode, SemesterID, SectionID),
@@ -457,7 +471,7 @@ GO
 CREATE TABLE Initiative_Member (
     InitiativeID INT         NOT NULL,
     MemberID     INT         NOT NULL,
-    Role         VARCHAR(50) NOT NULL,
+    MemberRole         VARCHAR(50) NOT NULL,
     CONSTRAINT PK_Initiative_Member PRIMARY KEY (InitiativeID, MemberID),
     CONSTRAINT FK_IM_Initiative FOREIGN KEY (InitiativeID) REFERENCES Innovation_Initiative(InitiativeID),
     CONSTRAINT FK_IM_Member     FOREIGN KEY (MemberID)     REFERENCES Academic_Member(MemberID)
@@ -486,12 +500,12 @@ GO
 
 CREATE TABLE Tool (
     ToolID      INT IDENTITY(1,1) NOT NULL,
-    Name        VARCHAR(150)  NOT NULL,
-    Description VARCHAR(1000) NULL,
+    ToolName        VARCHAR(150)  NOT NULL,
+    ToolDescription VARCHAR(1000) NULL,
     Category    VARCHAR(50)   NULL,
-    Status      VARCHAR(50)   NOT NULL CONSTRAINT DF_Tool_Status DEFAULT 'Under Review',
+    ToolStatus      VARCHAR(50)   NOT NULL CONSTRAINT DF_Tool_Status DEFAULT 'Under Review',
     CONSTRAINT PK_Tool PRIMARY KEY (ToolID),
-    CONSTRAINT UQ_Tool_Name UNIQUE (Name)
+    CONSTRAINT UQ_Tool_Name UNIQUE (ToolName)
 );
 GO
 
@@ -530,13 +544,13 @@ CREATE TABLE Milestone (
     InitiativeID   INT           NOT NULL,
     SeqNo          INT           NOT NULL,
     Title          VARCHAR(150)  NOT NULL,
-    Description    VARCHAR(1000) NULL,
+    MilestoneDescription    VARCHAR(1000) NULL,
     DueDate        DATE          NOT NULL,
     CompletionDate DATE          NULL,
-    Status         VARCHAR(50)   NOT NULL CONSTRAINT DF_MS_Status DEFAULT 'Pending',
+    MilestoneStatus         VARCHAR(50)   NOT NULL CONSTRAINT DF_MS_Status DEFAULT 'Pending',
     CONSTRAINT PK_Milestone PRIMARY KEY (InitiativeID, SeqNo),
     CONSTRAINT CK_MS_Seq    CHECK (SeqNo > 0),
-    CONSTRAINT CK_MS_Status CHECK (Status IN ('Pending','In Progress','Completed','Delayed')),
+    CONSTRAINT CK_MS_Status CHECK (MilestoneStatus IN ('Pending','In Progress','Completed','Delayed')),
     CONSTRAINT FK_MS_Initiative FOREIGN KEY (InitiativeID) REFERENCES Innovation_Initiative(InitiativeID)
 );
 GO
@@ -547,7 +561,7 @@ CREATE TABLE Evidence (
     ArtifactType   VARCHAR(50)   NULL,
     FilePathOrURL  VARCHAR(1000) NOT NULL,
     UploadDate     DATE          NOT NULL CONSTRAINT DF_EV_Upload DEFAULT (CAST(GETDATE() AS DATE)),
-    Description    VARCHAR(1000) NULL,
+    EvidenceDescription    VARCHAR(1000) NULL,
     InitiativeID   INT           NOT NULL,
     MilestoneSeqNo INT           NULL,   -- optional: evidence may belong to a specific milestone
     CONSTRAINT PK_Evidence PRIMARY KEY (EvidenceID),
@@ -575,7 +589,7 @@ GO
 CREATE TABLE Student_Feedback (
     FeedbackID        INT IDENTITY(1,1) NOT NULL,
     Rating            INT           NOT NULL,
-    Comment           VARCHAR(1000) NULL,
+    FeedbackComment           VARCHAR(1000) NULL,
     CategorySentiment VARCHAR(50)   NULL,
     CollectionMethod  VARCHAR(50)   NULL,
     InitiativeID      INT           NOT NULL,
@@ -595,12 +609,12 @@ CREATE TABLE Training_Session (
     SessionID       INT IDENTITY(1,1) NOT NULL,
     Title           VARCHAR(150)  NOT NULL,
     Topic           VARCHAR(150)  NULL,
-    Description     VARCHAR(1000) NULL,
+    SessionDescription     VARCHAR(1000) NULL,
     SessionDate     DATE          NOT NULL,
     DurationMinutes INT           NULL,
     Trainer         VARCHAR(150)  NULL,
     Capacity        INT           NOT NULL,
-    Status          VARCHAR(50)   NOT NULL CONSTRAINT DF_TS_Status DEFAULT 'Scheduled',
+    SessionStatus          VARCHAR(50)   NOT NULL CONSTRAINT DF_TS_Status DEFAULT 'Scheduled',
     ToolID          INT           NOT NULL,
     CONSTRAINT PK_Training_Session PRIMARY KEY (SessionID),
     CONSTRAINT CK_TS_Duration CHECK (DurationMinutes IS NULL OR DurationMinutes > 0),
@@ -640,7 +654,7 @@ GO
 
 CREATE TABLE Training_Requirement (
     RequirementID INT IDENTITY(1,1) NOT NULL,
-    Description   VARCHAR(1000) NULL,
+    RequirementDescription   VARCHAR(1000) NULL,
     TargetAudience VARCHAR(150) NULL,
     RequiredByDate DATE         NULL,
     IsMandatory   BIT           NOT NULL CONSTRAINT DF_TR_Mand DEFAULT 1,
@@ -661,7 +675,7 @@ CREATE TABLE Accreditation_Review (
     AccreditingBody VARCHAR(150) NOT NULL,
     ReviewType      VARCHAR(50)  NULL,
     ReviewCycle     VARCHAR(50)  NULL,
-    Status          VARCHAR(50)  NOT NULL CONSTRAINT DF_AccR_Status DEFAULT 'Open',
+    ReviewStatus          VARCHAR(50)  NOT NULL CONSTRAINT DF_AccR_Status DEFAULT 'Open',
     Decision        VARCHAR(50)  NULL,
     SubmissionDate  DATE         NULL,
     NextReviewDue   DATE         NULL,
