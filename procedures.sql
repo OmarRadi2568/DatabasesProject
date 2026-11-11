@@ -329,7 +329,7 @@ BEGIN
 END;
 GO
 
-CREATE PROCEDURE AddCourse
+CREATE OR ALTER PROCEDURE AddCourse
     @CourseCode VARCHAR(20),
     @Title VARCHAR(150),
     @CourseDescription VARCHAR(1000),
@@ -343,6 +343,26 @@ CREATE PROCEDURE AddCourse
 AS
 BEGIN
     SET NOCOUNT ON;
+    
+    BEGIN TRY
+
+    IF @CourseType NOT IN ('Core', 'Elective')
+    BEGIN
+        SELECT 'Course must be either Core or Elective' AS ConfirmationMessage; RETURN; 
+    END
+
+    IF @CreditHours IS NULL OR @CreditHours <= 0 
+    BEGIN 
+        SELECT 'Credit hours must be greater than zero' AS ConfirmationMessage; RETURN; 
+    END
+
+    IF EXISTS (SELECT 1 FROM Course WHERE CourseCode = @CourseCode) 
+    BEGIN 
+        SELECT 'Course already exists' AS ConfirmationMessage; RETURN; 
+    END
+
+    BEGIN TRAN;
+
 
     
     INSERT INTO Course (
@@ -351,11 +371,6 @@ BEGIN
         CourseDescription, 
         CreditHours, 
         CourseLevel, 
-        CourseType, 
-        DefaultStudySemester, 
-        RequiredForProgram, 
-        ElectivePool, 
-        MinSelectionRule
     )
     VALUES (
         @CourseCode, 
@@ -363,14 +378,30 @@ BEGIN
         @CourseDescription, 
         @CreditHours, 
         @CourseLevel, 
-        @CourseType, 
-        @DefaultStudySemester, 
-        @RequiredForProgram, 
-        @ElectivePool, 
-        @MinSelectionRule
     );
 
+    IF @CourseType = 'Core'
+    BEGIN
+        INSERT INTO Core_Course(CourseCode, DefaultStudySemester, RequiredForProgram)
+        VALUES (@CourseCode, @DefaultStudySemester, @RequiredForProgram)
+    END
+    ELSE
+    BEGIN 
+        INSERT INTO Elective_Course(CourseCode, ElectivePool, MinSelectionRule)
+        VALUES (@CourseCode, @ElectivePool, @MinSelectionRule)
+    END
+
+    COMMIT;
+
     SELECT 'Course added successfully.' AS ConfirmationMessage;
+
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK
+        SELECT 'Error' + ERROR_MESSAGE() AS ConfirmationMessage;
+
+    END CATCH
+
 END;
 GO
 
