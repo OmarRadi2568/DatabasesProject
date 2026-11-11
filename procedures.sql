@@ -760,7 +760,7 @@ END CATCH
 END;
 GO
 
-CREATE PROCEDURE AddSemester
+CREATE OR ALTER PROCEDURE AddSemester
     @SemesterName VARCHAR(50),
     @AcademicYear VARCHAR(50),
     @StartDate DATE,
@@ -769,6 +769,42 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    BEGIN TRY
+
+    IF @SemesterName IS NULL OR @SemesterName = '' 
+    BEGIN
+        SELECT 'Semester name cannot be blank' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @AcademicYear IS NULL OR @AcademicYear = '' 
+    BEGIN
+        SELECT 'Academic Year cannot be blank' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @StartDate IS NULL 
+    BEGIN
+        SELECT 'Start date cannot be null' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @EndDate IS NULL 
+    BEGIN
+        SELECT 'End date cannot be null' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @EndDate <= StartDate
+    BEGIN   
+        SELECT 'Start date cannot be after end date' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Semester WHERE SemesterName = @SemesterName)
+    BEGIN 
+        SELECT 'Semester name already exists' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Semester WHERE AcademicYear = @AcademicYear)
+    BEGIN 
+        SELECT 'Academic year already exists' AS ConfirmationMessage;RETURN;
+    END
     
     INSERT INTO Semester (
         SemesterName, 
@@ -787,6 +823,11 @@ BEGIN
     SELECT 
         'Academic semester added successfully.' AS ConfirmationMessage,
         SCOPE_IDENTITY() AS NewSemesterID;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -798,6 +839,23 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    BEGIN TRY
+    IF NOT EXISTS(SELECT 1 FROM Dean WHERE DeanID = @DeanID)
+    BEGIN
+        SELECT 'Dean does not exist' AS ConfirmationMessage;RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Semester WHERE SemesterID = @SemesterID)
+    BEGIN
+        SELECT 'Semester does not exist' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Dean_Term WHERE DeanID = @DeanID AND SemesterID = @SemesterID)
+    BEGIN
+        SELECT 'Term already exists' AS ConfirmationMessage;RETURN;
+    END
+    
+    
    
     INSERT INTO Dean_Term (
         DeanID, 
@@ -809,6 +867,11 @@ BEGIN
     );
 
     SELECT 'Dean term recorded successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -823,6 +886,48 @@ CREATE PROCEDURE CreateCourseOffering
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    BEGIN TRY
+    IF NOT EXISTS(SELECT 1 FROM Course WHERE CourseCode = @CourseCode)
+    BEGIN
+        SELECT 'Course code does not exist' AS ConfirmationMessage;RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Semester WHERE SemesterID = @SemesterID)
+    BEGIN
+        SELECT 'Semester does not exist' AS ConfirmationMessage;RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Academic_Instructor WHERE InstructorID = @InstructorID)
+    BEGIN
+        SELECT 'Instructor does not exist' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @SectionID IS NULL OR @SectionID = ''
+    BEGIN
+        SELECT 'Section cannot be blank' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @EnrolledCount IS NULL or @EnrolledCount < 0
+    BEGIN
+        SELECT 'Count cannot be null or less than zero' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Course WHERE CourseCode = @CourseCode)
+    BEGIN
+        SELECT 'Course already exists' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Semester WHERE SemesterID = @SemesterID)
+    BEGIN
+        SELECT 'Semester already exists' AS ConfirmationMessage;RETURN;
+    END
+
+     IF EXISTS(SELECT 1 FROM Course_Offering WHERE SectionID = @SectionID)
+    BEGIN
+        SELECT 'Section already exists' AS ConfirmationMessage;RETURN;
+    END
+    
 
     INSERT INTO Course_Offering (
         CourseCode, 
@@ -842,6 +947,11 @@ BEGIN
     );
 
     SELECT 'Course offering created successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
