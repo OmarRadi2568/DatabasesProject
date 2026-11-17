@@ -964,6 +964,33 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    BEGIN TRY
+    IF NOT EXISTS(SELECT 1 FROM Course WHERE CourseCode = @CourseCode)
+    BEGIN
+        SELECT 'Course code does not exist' AS ConfirmationMessage;RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Semester WHERE SemesterID = @SemesterID)
+    BEGIN
+        SELECT 'Semester does not exist' AS ConfirmationMessage;RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Course_Offering WHERE SectionID = @SectionID)
+    BEGIN
+        SELECT 'Section id does not exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Teaching_Assistant WHERE TAID = @TAID)
+    BEGIN
+        SELECT 'Teaching assistant not found' AS ConfirmationMessage; RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Course_Offering WHERE TAID = @TAID)
+    BEGIN
+        SELECT 'Teaching assistant already exists' AS ConfirmationMessage; RETURN;
+    END
+
+
     
     INSERT INTO Offering_TA (
         CourseCode, 
@@ -979,6 +1006,12 @@ BEGIN
     );
 
     SELECT 'Teaching assistant assigned to course offering successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+
 END;
 GO
 
@@ -1000,6 +1033,24 @@ CREATE PROCEDURE AddTool
 AS
 BEGIN
     SET NOCOUNT ON;
+
+    BEGIN TRY
+    IF @ToolName IS NULL OR @ToolName = ''
+    BEGIN
+        SELECT 'Tool name cannot be NULL or empty' AS ConfirmationMessage; RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Tool WHERE ToolName = @ToolName)
+    BEGIN
+        SELECT 'Tool name already exists' AS ConfirmationMessage;RETURN;
+    END
+
+    IF @ToolType NOT IN ('AI_Tool', 'Teaching Methodology')
+    BEGIN
+        SELECT 'Invalid Tool type' AS ConfirmationMessage;RETURN;
+    END
+
+
 
     DECLARE @NewToolID INT;
 
@@ -1060,6 +1111,11 @@ BEGIN
     SELECT 
         'Tool added successfully.' AS ConfirmationMessage,
         @NewToolID AS NewToolID;
+        END TRY
+
+        BEGIN CATCH
+            SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+        END CATCH
 END;
 GO
 
