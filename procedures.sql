@@ -771,7 +771,11 @@ END;
 GO
 
 CREATE OR ALTER PROCEDURE AddSemester
+<<<<<<< HEAD
     @Name VARCHAR(50),
+=======
+    @SemesterName VARCHAR(50),
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     @AcademicYear VARCHAR(50),
     @StartDate DATE,
     @EndDate DATE
@@ -781,7 +785,11 @@ BEGIN
 
     BEGIN TRY
 
+<<<<<<< HEAD
     IF @Name IS NULL OR @Name = '' 
+=======
+    IF @SemesterName IS NULL OR @SemesterName = '' 
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Semester name cannot be blank' AS ConfirmationMessage;RETURN;
     END
@@ -801,14 +809,29 @@ BEGIN
         SELECT 'End date cannot be null' AS ConfirmationMessage;RETURN;
     END
 
+<<<<<<< HEAD
     IF @EndDate <= @StartDate
+=======
+    IF @EndDate <= StartDate
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN   
         SELECT 'Start date cannot be after end date' AS ConfirmationMessage;RETURN;
     END
 
+<<<<<<< HEAD
     IF EXISTS(SELECT 1 FROM Semester WHERE SemesterName = @Name AND AcademicYear = @AcademicYear)
     BEGIN 
         SELECT 'Semester already exists for this academic year' AS ConfirmationMessage;RETURN;
+=======
+    IF EXISTS(SELECT 1 FROM Semester WHERE SemesterName = @SemesterName)
+    BEGIN 
+        SELECT 'Semester name already exists' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Semester WHERE AcademicYear = @AcademicYear)
+    BEGIN 
+        SELECT 'Academic year already exists' AS ConfirmationMessage;RETURN;
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     END
     
     INSERT INTO Semester (
@@ -845,7 +868,11 @@ BEGIN
     SET NOCOUNT ON;
 
     BEGIN TRY
+<<<<<<< HEAD
     IF NOT EXISTS(SELECT 1 FROM Dean WHERE MemberID = @DeanID)
+=======
+    IF NOT EXISTS(SELECT 1 FROM Dean WHERE DeanID = @DeanID)
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Dean does not exist' AS ConfirmationMessage;RETURN;
     END
@@ -903,7 +930,11 @@ BEGIN
         SELECT 'Semester does not exist' AS ConfirmationMessage;RETURN;
     END
 
+<<<<<<< HEAD
     IF NOT EXISTS(SELECT 1 FROM Academic_Instructor WHERE MemberID = @InstructorID)
+=======
+    IF NOT EXISTS(SELECT 1 FROM Academic_Instructor WHERE InstructorID = @InstructorID)
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Instructor does not exist' AS ConfirmationMessage;RETURN;
     END
@@ -918,7 +949,21 @@ BEGIN
         SELECT 'Count cannot be null or less than zero' AS ConfirmationMessage;RETURN;
     END
 
+<<<<<<< HEAD
     IF EXISTS(SELECT 1 FROM Course_Offering WHERE CourseCode = @CourseCode AND SemesterID = @SemesterID AND SectionID = @SectionID)
+=======
+    IF EXISTS(SELECT 1 FROM Course WHERE CourseCode = @CourseCode)
+    BEGIN
+        SELECT 'Course already exists' AS ConfirmationMessage;RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Semester WHERE SemesterID = @SemesterID)
+    BEGIN
+        SELECT 'Semester already exists' AS ConfirmationMessage;RETURN;
+    END
+
+     IF EXISTS(SELECT 1 FROM Course_Offering WHERE SectionID = @SectionID)
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Section already exists' AS ConfirmationMessage;RETURN;
     END
@@ -970,17 +1015,29 @@ BEGIN
         SELECT 'Semester does not exist' AS ConfirmationMessage;RETURN;
     END
 
+<<<<<<< HEAD
     IF NOT EXISTS(SELECT 1 FROM Course_Offering WHERE CourseCode = @CourseCode AND SemesterID = @SemesterID AND SectionID = @SectionID)
+=======
+    IF NOT EXISTS(SELECT 1 FROM Course_Offering WHERE SectionID = @SectionID)
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Section id does not exist' AS ConfirmationMessage; RETURN;
     END
 
+<<<<<<< HEAD
     IF NOT EXISTS(SELECT 1 FROM Teaching_Assistant WHERE MemberID = @TAID)
+=======
+    IF NOT EXISTS(SELECT 1 FROM Teaching_Assistant WHERE TAID = @TAID)
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Teaching assistant not found' AS ConfirmationMessage; RETURN;
     END
 
+<<<<<<< HEAD
     IF EXISTS(SELECT 1 FROM Offering_TA WHERE CourseCode = @CourseCode AND SemesterID = @SemesterID AND SectionID = @SectionID AND TAID = @TAID)
+=======
+    IF EXISTS(SELECT 1 FROM Course_Offering WHERE TAID = @TAID)
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Teaching assistant already exists' AS ConfirmationMessage; RETURN;
     END
@@ -1030,21 +1087,38 @@ BEGIN
     SET NOCOUNT ON;
 
     BEGIN TRY
+<<<<<<< HEAD
     IF @Name IS NULL OR @Name = ''
+=======
+    IF @ToolName IS NULL OR @ToolName = ''
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Tool name cannot be NULL or empty' AS ConfirmationMessage; RETURN;
     END
 
+<<<<<<< HEAD
     IF EXISTS(SELECT 1 FROM Tool WHERE ToolName = @Name)
+=======
+    IF EXISTS(SELECT 1 FROM Tool WHERE ToolName = @ToolName)
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Tool name already exists' AS ConfirmationMessage;RETURN;
     END
 
+<<<<<<< HEAD
     IF @ToolType IS NULL OR @ToolType NOT IN ('AI Tool', 'Teaching Methodology')
+=======
+    IF @ToolType NOT IN ('AI_Tool', 'Teaching Methodology')
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     BEGIN
         SELECT 'Invalid Tool type' AS ConfirmationMessage;RETURN;
     END
 
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
     DECLARE @NewToolID INT;
 
     BEGIN TRAN;
@@ -1104,12 +1178,20 @@ BEGIN
     SELECT 
         'Tool added successfully.' AS ConfirmationMessage,
         @NewToolID AS NewToolID;
+<<<<<<< HEAD
     END TRY
 
     BEGIN CATCH
         IF @@TRANCOUNT > 0 ROLLBACK;
         SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
     END CATCH
+=======
+        END TRY
+
+        BEGIN CATCH
+            SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+        END CATCH
+>>>>>>> 3a68e72d52fde52bdf099820f49e8116d47e097a
 END;
 GO
 
