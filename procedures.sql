@@ -2268,3 +2268,41 @@ BEGIN
     RETURN CAST((@Completed * 100.0) / @Total AS DECIMAL(5,2));
 END;
 GO
+
+--TEACHING ASSISTANT
+CREATE OR ALTER PROCEDURE ViewSupportedOfferings(
+    @TAID INT
+)
+RETURNS TABLE
+AS
+BEGIN
+    RETURN
+    (
+        SELECT
+            c.title AS CourseTitle,
+            s.SemesterName,
+            co.SectionID AS SectionID,
+            m.FirstName + ' ' + m.LastName AS InstructorName
+
+        FROM Course_Offering co
+        
+        INNER JOIN Offering_TA ot ON 
+        co.CourseCode = ot.CourseCode 
+        AND co.SemesterID = ot.SemesterID 
+        AND co.SectionID = ot.SectionID
+        
+        INNER JOIN Teaching_Assistant ta ON 
+        ot.TAID = ta.MemberID
+
+        INNER JOIN Course c ON 
+        co.CourseCode = c.CourseCode
+
+        INNER JOIN Semester s ON
+        co.SemesterID = s.SemesterID
+
+        INNER JOIN Academic_Member m ON
+        co.InstructorID = m.MemberID
+
+        WHERE ot.TAID = @TAID
+    );
+END;
