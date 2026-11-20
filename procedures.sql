@@ -76,17 +76,25 @@ BEGIN
 END;
 GO
 
-
-CREATE OR ALTER FUNCTION ViewMemberInfo(
-    @MemberID INT
-)
+CREATE OR ALTER FUNCTION ViewMemberInfo (@MemberID INT)
 RETURNS TABLE
-AS
-RETURN
+AS RETURN
 (
-    SELECT *
-    FROM Academic_Member
-    WHERE MemberID = @MemberID
+    SELECT M.*,
+           I.MemberID AS InstructorID, I.ResearchArea, I.OfficeLocation, I.TeachingLoad,
+           T.MemberID AS TAID, T.AssistantLevel, T.SupervisorID,
+           D.MemberID AS DeanID, D.ApprovalAuthorityScope,
+           U.MemberID AS ManagementID, U.ManagementTitle, U.DecisionAuthorityLevel, U.GovernanceScope,
+           R.MemberID AS ReviewerID, R.ReviewDomain, R.ReviewAuthorityLevel,
+           S.AccessScope
+    FROM Academic_Member M
+    LEFT OUTER JOIN Academic_Instructor  I ON I.MemberID = M.MemberID
+    LEFT OUTER JOIN Teaching_Assistant   T ON T.MemberID = M.MemberID
+    LEFT OUTER JOIN Dean                 D ON D.MemberID = M.MemberID
+    LEFT OUTER JOIN University_Management U ON U.MemberID = M.MemberID
+    LEFT OUTER JOIN Curriculum_Reviewer  R ON R.MemberID = M.MemberID
+    LEFT OUTER JOIN Member_Access_Scope  S ON S.MemberID = M.MemberID
+    WHERE M.MemberID = @MemberID
 );
 GO
 
@@ -2270,19 +2278,17 @@ END;
 GO
 
 --TEACHING ASSISTANT
-CREATE OR ALTER PROCEDURE ViewSupportedOfferings(
-    @TAID INT
-)
+--1
+CREATE OR ALTER FUNCTION ViewSupportedOfferings(@TAID INT)
 RETURNS TABLE
 AS
-BEGIN
     RETURN
-    (
+    
         SELECT
             c.title AS CourseTitle,
             s.SemesterName,
             co.SectionID AS SectionID,
-            m.FirstName + ' ' + m.LastName AS InstructorName
+            m.Fullname AS InstructorName
 
         FROM Course_Offering co
         
@@ -2304,5 +2310,137 @@ BEGIN
         co.InstructorID = m.MemberID
 
         WHERE ot.TAID = @TAID
-    );
+GO
+
+--2
+CREATE OR ALTER FUNCTION ViewMySupervisor(@TAID INT)
+RETURNS TABLE
+AS
+    RETURN 
+        SELECT
+            m.FullName AS SupervisorName,
+            m.Email AS SupervisorEmail,
+            i.OfficeLocation AS SupervisorOffice
+
+        FROM Teaching_Assistant ta
+        
+        INNER JOIN Academic_Member m ON
+        ta.SupervisorID = m.MemberID
+
+        INNER JOIN Academic_Instructor i ON
+        ta.SupervisorID = i.MemberID
+
+        WHERE ta.MemberID = @TAID
+GO
+
+--3
+CREATE OR ALTER FUNCTION ViewCourseILOs(@CourseCode varchar(20))
+RETURNS TABLE
+AS
+    RETURN
+        SELECT
+            i.ILOCode AS ILOCode,
+            i.ILOStatement AS ILOStatement,
+            i.CognitiveLevel AS CognitiveLevel
+        FROM ILO i
+        WHERE i.CourseCode = @CourseCode
+GO
+
+
+--4
+CREATE OR ALTER FUNCTION ViewOfferingAssessments (@CourseCode varchar(20), @SemesterID INT, @SectionID varchar(20))
+RETURNS TABLE
+AS
+    RETURN
+        SELECT
+            oa.Instrument AS Instrument,
+            oa.TargetThreshold AS TargetThreshold,
+            oa.AttainedValue AS AttainedValue,
+            oa.TargetMet AS TargetMet
+        FROM Outcome_Assessment oa
+        WHERE oa.CourseCode = @CourseCode
+          AND oa.SemesterID = @SemesterID
+          AND oa.SectionID = @SectionID
+GO
+
+
+--5
+CREATE OR ALTER PROCEDURE UpdateEnrolledCount
+@CourseCode varchar(20), 
+@SemesterID int, 
+@SectionID varchar(20), 
+@EnrolledCount int
+AS
+BEGIN
+    IF NOT EXISTS (SELECT * FROM Course_Offering
+                   WHERE CourseCode = @CourseCode AND SemesterID = @SemesterID AND SectionID = @SectionID)
+    BEGIN
+        SELECT 'Course offering does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @EnrolledCount IS NULL OR @EnrolledCount < 0
+    BEGIN
+        SELECT 'Enrolled count cannot be NULL or negative.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    UPDATE Course_Offering
+    SET EnrolledCount = @EnrolledCount
+    WHERE CourseCode = @CourseCode
+        AND SemesterID = @SemesterID
+        AND SectionID = @SectionID;
+
+    SELECT 'Enrolled count updated successfully.' AS ConfirmationMessage; 
 END;
+GO
+
+--6
+CREATE OR ALTER PROCEDURE UpdateMilestoneStatus
+@InitiativeID INT,
+@SeqNo INT,
+@Status VARCHAR(50)
+AS
+BEGIN
+    IF NOT EXISTS (SELECT * FROM Milestone WHERE InitiativeID = @InitiativeID AND SeqNo = @SeqNo)
+    BEGIN
+        SELECT 'Milestone does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Status IS NULL OR @Status NOT IN ('Pending', 'In Progress', 'Completed', 'Delayed')
+    BEGIN
+        SELECT 'Status must be Pending, In Progress, Completed or Delayed.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    UPDATE Milestone
+    SET MilestoneStatus = @Status
+    WHERE InitiativeID = @InitiativeID
+        AND SeqNo = @SeqNo;
+
+    SELECT 'Milestone status updated successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--7
+CREATE OR ALTER FUNCTION ViewInitiativeEvidence(
+    @InitiativeID INT
+)
+RETURNS TABLE
+AS
+    RETURN
+        SELECT 
+          e.Title AS EvidenceTitle,  
+          e.ArtifactType AS ArtifactType,,
+          m.Title AS MilestoneTitle,
+          e.UploadDate AS UploadDate
+
+        FROM Evidence e
+        LEFT JOIN Milestone m ON e.InitiativeID = m.InitiativeID 
+        AND e.MilestoneSeqNo = m.SeqNo
+        WHERE e.InitiativeID = @InitiativeID
+GO
+
+--Curriculum Reviewer
+--1
