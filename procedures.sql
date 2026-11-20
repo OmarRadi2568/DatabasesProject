@@ -2432,7 +2432,7 @@ AS
     RETURN
         SELECT 
           e.Title AS EvidenceTitle,  
-          e.ArtifactType AS ArtifactType,,
+          e.ArtifactType AS ArtifactType,
           m.Title AS MilestoneTitle,
           e.UploadDate AS UploadDate
 
@@ -2444,3 +2444,461 @@ GO
 
 --Curriculum Reviewer
 --1
+CREATE OR ALTER FUNCTION ViewProgramCurriculumMap(@ProgramID int)
+RETURNS TABLE
+AS
+    RETURN
+        SELECT
+            om.PLOCode AS PLOCode,
+            c.Title AS CourseTitle,
+            c.CourseCode AS CourseCode,
+            om.ILOCode AS ILOCode,
+            om.CoverageLevel AS CoverageLevel,
+            om.IsAssessmentPoint AS IsAssessmentPoint
+            
+        FROM Outcome_Mapping om
+        
+        INNER JOIN Course c ON om.CourseCode = c.CourseCode
+        WHERE om.ProgramID = @ProgramID AND om.MappingStatus <> 'Rejected'
+GO
+
+--2
+CREATE OR ALTER FUNCTION GetUncoveredPLOs(@ProgramID int)
+RETURNS TABLE
+AS
+    RETURN
+        SELECT
+            p.PLOCode AS PLOCode,
+            p.PLOStatement AS PLOStatement
+        FROM PLO p
+        WHERE p.ProgramID = @ProgramID 
+        AND NOT EXISTS (
+            SELECT 1
+            FROM Outcome_Mapping om
+            WHERE om.ProgramID = @ProgramID
+            AND om.PLOCode = p.PLOCode
+            AND om.MappingStatus = 'Approved')
+GO
+
+--3
+CREATE OR ALTER FUNCTION GetPLOCoverageSummary(@ProgramID int)
+RETURNS TABLE
+AS
+    RETURN
+        SELECT
+            om.PLOCode AS PLOCode,
+            om.CoverageLevel AS CoverageLevel,
+            COUNT(DISTINCT om.CourseCode) AS CourseCount,
+            (SELECT COUNT(*)
+             FROM Outcome_Mapping om2
+             WHERE om2.ProgramID = om.ProgramID
+               AND om2.PLOCode = om.PLOCode
+               AND om2.MappingStatus = 'Approved'
+               AND om2.IsAssessmentPoint = 1) AS AssessmentPoints
+        FROM Outcome_Mapping om
+        WHERE om.ProgramID = @ProgramID AND om.MappingStatus = 'Approved'
+        GROUP BY om.ProgramID, om.PLOCode, om.CoverageLevel
+GO
+
+--4
+CREATE OR ALTER PROCEDURE ReviewOutcomeMapping
+@MappingID INT,
+@MappingStatus VARCHAR(50)
+AS
+BEGIN
+    IF NOT EXISTS (SELECT * FROM Outcome_Mapping WHERE MappingID = @MappingID)
+    BEGIN
+        SELECT 'Mapping does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @MappingStatus IS NULL OR @MappingStatus NOT IN ('Approved', 'Rejected')
+    BEGIN
+        SELECT 'Mapping status must be Approved or Rejected.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    UPDATE Outcome_Mapping
+    SET MappingStatus = @MappingStatus
+    WHERE MappingID = @MappingID;
+
+    SELECT 'Outcome mapping status updated successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--5
+CREATE OR ALTER FUNCTION GetPLOAttainment(
+    @ProgramID INT,
+    @PLOCode VARCHAR(20),
+    @SemesterID INT
+)
+RETURNS DECIMAL(5,2)
+AS
+BEGIN
+DECLARE @Total INT, @Met INT, @Result DECIMAL(5,2);
+        
+        SELECT @Total = COUNT(*)
+        FROM Outcome_Assessment oa
+        INNER JOIN Outcome_Mapping om ON oa.MappingID = om.MappingID
+        WHERE om.ProgramID = @ProgramID 
+        AND om.PLOCode = @PLOCode 
+        AND oa.SemesterID = @SemesterID;
+
+        SELECT @Met = COUNT(*)
+        FROM Outcome_Assessment oa
+        INNER JOIN Outcome_Mapping om ON oa.MappingID = om.MappingID
+        WHERE om.ProgramID = @ProgramID 
+        AND om.PLOCode = @PLOCode 
+        AND oa.SemesterID = @SemesterID
+        AND oa.TargetMet = 1;
+
+        IF @Total > 0
+            SET @Resukt = 100.0 * @Met / @Total;
+        RETURN @Result;
+END;
+GO
+
+--6
+CREATE OR ALTER FUNCTION ViewAssessmentsBelowTarget (@ProgramID INT, @SemesterID INT)
+RETURNS TABLE
+AS
+RETURN
+    SELECT oa.AssessmentID,
+           oa.CourseCode,
+           oa.ILOCode,
+           oa.TargetThreshold,
+           oa.AttainedValue,
+           oa.CorrectiveAction
+    FROM Outcome_Assessment oa
+    INNER JOIN Outcome_Mapping om ON om.MappingID = oa.MappingID
+    WHERE om.ProgramID = @ProgramID
+      AND oa.SemesterID = @SemesterID
+      AND oa.TargetMet = 0;
+GO
+
+--7
+CREATE OR ALTER FUNCTION TrackCorrectiveActionEffect (@CourseCode VARCHAR(20), @ILOCode VARCHAR(20))
+RETURNS TABLE
+AS
+RETURN
+    SELECT TOP 100 PERCENT
+           s.SemesterName,
+           s.AcademicYear,
+           s.StartDate,
+           oa.TargetThreshold,
+           oa.AttainedValue,
+           oa.TargetMet AS Result,
+           oa.CorrectiveAction
+    FROM Outcome_Assessment oa
+    INNER JOIN Semester s ON s.SemesterID = oa.SemesterID
+    WHERE oa.CourseCode = @CourseCode
+      AND oa.ILOCode = @ILOCode
+    ORDER BY s.StartDate;
+GO
+
+--8
+CREATE OR ALTER FUNCTION ViewPendingProposals (@ProgramID INT)
+RETURNS TABLE
+AS
+RETURN
+    SELECT p.ProposalID,
+           p.Title,
+           m.FullName AS Proposer,
+           p.SubmissionDate
+    FROM Modification_Proposal p
+    INNER JOIN Academic_Member m ON m.MemberID = p.ProposerID
+    WHERE (p.ProgramID = @ProgramID
+           OR p.CourseCode IN (SELECT vc.CourseCode
+                               FROM Version_Course vc
+                               WHERE vc.ProgramID = @ProgramID))
+      AND NOT EXISTS (SELECT *
+                      FROM Approval_Record ar
+                      WHERE ar.ProposalID = p.ProposalID
+                        AND ar.DecisionLevel IN ('Dean', 'University')
+                        AND ar.Decision IN ('Approved', 'Rejected'));
+GO
+
+--9
+CREATE OR ALTER PROCEDURE ReviewModificationProposal
+    @ProposalID INT,
+    @ReviewerID INT,
+    @Decision VARCHAR(50),
+    @Comments VARCHAR(1000)
+AS
+BEGIN
+    DECLARE @ProposerID INT;
+
+    SELECT @ProposerID = ProposerID
+    FROM Modification_Proposal
+    WHERE ProposalID = @ProposalID;
+
+    IF @ProposerID IS NULL
+    BEGIN
+        SELECT 'Proposal does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Curriculum_Reviewer WHERE MemberID = @ReviewerID)
+    BEGIN
+        SELECT 'Member is not a curriculum reviewer.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @ProposerID = @ReviewerID
+    BEGIN
+        SELECT 'A reviewer cannot review their own proposal.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Decision IS NULL OR @Decision NOT IN ('Approved', 'Rejected', 'Returned for Revision')
+    BEGIN
+        SELECT 'Decision must be Approved, Rejected or Returned for Revision.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    INSERT INTO Approval_Record (Decision, DecisionLevel, Comments, DeciderID, ProposalID)
+    VALUES (@Decision, 'Reviewer', @Comments, @ReviewerID, @ProposalID);
+
+    SELECT 'Review decision recorded successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--10
+CREATE OR ALTER FUNCTION ViewCourseProposalHistory (@CourseCode VARCHAR(20))
+RETURNS TABLE
+AS
+RETURN
+    SELECT p.ProposalID,
+           p.Title,
+           p.ModificationType,
+           p.SubmissionDate,
+           ar.Decision AS LatestDecision,
+           ar.DecisionLevel,
+           ar.DecisionDate
+    FROM Modification_Proposal p
+    LEFT OUTER JOIN Approval_Record ar
+        ON ar.ProposalID = p.ProposalID
+       AND ar.ApprovalID = (SELECT MAX(ar2.ApprovalID)
+                            FROM Approval_Record ar2
+                            WHERE ar2.ProposalID = p.ProposalID)
+    WHERE p.CourseCode = @CourseCode;
+GO
+
+--11
+CREATE OR ALTER PROCEDURE CreateAccreditationReview
+    @ProgramID INT,
+    @AccreditingBody VARCHAR(150),
+    @ReviewType VARCHAR(50),
+    @ReviewCycle VARCHAR(50),
+    @NextReviewDue DATE
+AS
+BEGIN
+    IF NOT EXISTS (SELECT * FROM Program WHERE ProgramID = @ProgramID)
+    BEGIN
+        SELECT 'Program does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @AccreditingBody IS NULL OR @AccreditingBody = ''
+    BEGIN
+        SELECT 'Accrediting body cannot be NULL or blank.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    INSERT INTO Accreditation_Review (AccreditingBody, ReviewType, ReviewCycle, NextReviewDue, ProgramID)
+    VALUES (@AccreditingBody, @ReviewType, @ReviewCycle, @NextReviewDue, @ProgramID);
+
+    SELECT 'Accreditation review created successfully.' AS ConfirmationMessage,
+           MAX(ReviewID) AS NewReviewID
+    FROM Accreditation_Review;
+END;
+GO
+
+--12
+CREATE OR ALTER PROCEDURE AttachMappingsToReview
+    @ReviewID INT
+AS
+BEGIN
+    DECLARE @ProgramID INT;
+    DECLARE @Count INT;
+
+    SELECT @ProgramID = ProgramID
+    FROM Accreditation_Review
+    WHERE ReviewID = @ReviewID;
+
+    IF @ProgramID IS NULL
+    BEGIN
+        SELECT 'Accreditation review does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    SELECT @Count = COUNT(*)
+    FROM Outcome_Mapping om
+    WHERE om.ProgramID = @ProgramID
+      AND om.MappingStatus = 'Approved'
+      AND om.MappingID NOT IN (SELECT rm.MappingID
+                               FROM Review_Mapping rm
+                               WHERE rm.ReviewID = @ReviewID);
+
+    INSERT INTO Review_Mapping (ReviewID, MappingID)
+    SELECT @ReviewID, om.MappingID
+    FROM Outcome_Mapping om
+    WHERE om.ProgramID = @ProgramID
+      AND om.MappingStatus = 'Approved'
+      AND om.MappingID NOT IN (SELECT rm.MappingID
+                               FROM Review_Mapping rm
+                               WHERE rm.ReviewID = @ReviewID);
+
+    SELECT 'Approved mappings attached successfully.' AS ConfirmationMessage,
+           @Count AS AttachedMappings;
+END;
+GO
+
+--13
+CREATE OR ALTER PROCEDURE AttachAssessmentToReview
+    @ReviewID INT,
+    @AssessmentID INT
+AS
+BEGIN
+    IF NOT EXISTS (SELECT * FROM Accreditation_Review WHERE ReviewID = @ReviewID)
+    BEGIN
+        SELECT 'Accreditation review does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Outcome_Assessment WHERE AssessmentID = @AssessmentID)
+    BEGIN
+        SELECT 'Outcome assessment does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF EXISTS (SELECT * FROM Review_Assessment
+               WHERE ReviewID = @ReviewID AND AssessmentID = @AssessmentID)
+    BEGIN
+        SELECT 'Assessment is already attached to this review.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    INSERT INTO Review_Assessment (ReviewID, AssessmentID)
+    VALUES (@ReviewID, @AssessmentID);
+
+    SELECT 'Assessment attached to review successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--14
+CREATE OR ALTER PROCEDURE AttachEvidenceToReview
+    @ReviewID INT,
+    @EvidenceID INT
+AS
+BEGIN
+    IF NOT EXISTS (SELECT * FROM Accreditation_Review WHERE ReviewID = @ReviewID)
+    BEGIN
+        SELECT 'Accreditation review does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Evidence WHERE EvidenceID = @EvidenceID)
+    BEGIN
+        SELECT 'Evidence does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF EXISTS (SELECT * FROM Review_Evidence
+               WHERE ReviewID = @ReviewID AND EvidenceID = @EvidenceID)
+    BEGIN
+        SELECT 'Evidence is already attached to this review.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    INSERT INTO Review_Evidence (ReviewID, EvidenceID)
+    VALUES (@ReviewID, @EvidenceID);
+
+    SELECT 'Evidence attached to review successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--15
+CREATE OR ALTER PROCEDURE UpdateAccreditationStatus
+    @ReviewID INT,
+    @Status VARCHAR(50),
+    @Decision VARCHAR(50),
+    @SubmissionDate DATE
+AS
+BEGIN
+    IF NOT EXISTS (SELECT * FROM Accreditation_Review WHERE ReviewID = @ReviewID)
+    BEGIN
+        SELECT 'Accreditation review does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Status IS NULL OR @Status = ''
+    BEGIN
+        SELECT 'Status cannot be NULL or blank.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    UPDATE Accreditation_Review
+    SET ReviewStatus = @Status,
+        Decision = @Decision,
+        SubmissionDate = @SubmissionDate
+    WHERE ReviewID = @ReviewID;
+
+    SELECT 'Accreditation status updated successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--16
+CREATE OR ALTER FUNCTION GenerateAccreditationPack (@ReviewID INT)
+RETURNS TABLE
+AS
+RETURN
+    SELECT 'Mapping' AS ItemType,
+           om.MappingID AS ItemID,
+           om.CourseCode + ' ' + om.ILOCode + ' -> PLO ' + om.PLOCode AS Title,
+           'Coverage: ' + om.CoverageLevel + ', status: ' + om.MappingStatus AS Detail,
+           NULL AS TargetThreshold,
+           NULL AS AttainedValue
+    FROM Review_Mapping rm
+    INNER JOIN Outcome_Mapping om ON om.MappingID = rm.MappingID
+    WHERE rm.ReviewID = @ReviewID
+
+    UNION ALL
+
+    SELECT 'Assessment',
+           oa.AssessmentID,
+           oa.Instrument,
+           'Course ' + oa.CourseCode + ', ILO ' + oa.ILOCode,
+           oa.TargetThreshold,
+           oa.AttainedValue
+    FROM Review_Assessment ra
+    INNER JOIN Outcome_Assessment oa ON oa.AssessmentID = ra.AssessmentID
+    WHERE ra.ReviewID = @ReviewID
+
+    UNION ALL
+
+    SELECT 'Evidence',
+           e.EvidenceID,
+           e.Title,
+           e.ArtifactType + ' - ' + e.FilePathOrURL,
+           NULL,
+           NULL
+    FROM Review_Evidence re
+    INNER JOIN Evidence e ON e.EvidenceID = re.EvidenceID
+    WHERE re.ReviewID = @ReviewID;
+GO
+
+--17
+CREATE OR ALTER FUNCTION GetUpcomingAccreditations (@DaysAhead INT)
+RETURNS TABLE
+AS
+RETURN
+    SELECT p.ProgramName AS Program,
+           ar.AccreditingBody,
+           ar.ReviewStatus AS Status,
+           ar.NextReviewDue
+    FROM Accreditation_Review ar
+    INNER JOIN Program p ON p.ProgramID = ar.ProgramID
+    WHERE ar.NextReviewDue > CURRENT_TIMESTAMP - 1
+      AND ar.NextReviewDue <= CURRENT_TIMESTAMP + @DaysAhead;
+GO
