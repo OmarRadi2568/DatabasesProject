@@ -2432,7 +2432,7 @@ AS
     RETURN
         SELECT 
           e.Title AS EvidenceTitle,  
-          e.ArtifactType AS ArtifactType,,
+          e.ArtifactType AS ArtifactType,
           m.Title AS MilestoneTitle,
           e.UploadDate AS UploadDate
 
