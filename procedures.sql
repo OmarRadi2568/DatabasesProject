@@ -1,3 +1,6 @@
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
 
 IF OBJECT_ID('AddAcademicMember', 'P') IS NOT NULL
     DROP PROCEDURE AddAcademicMember;
@@ -2372,6 +2375,10 @@ CREATE OR ALTER PROCEDURE UpdateEnrolledCount
 @EnrolledCount int
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     IF NOT EXISTS (SELECT * FROM Course_Offering
                    WHERE CourseCode = @CourseCode AND SemesterID = @SemesterID AND SectionID = @SectionID)
     BEGIN
@@ -2392,6 +2399,11 @@ BEGIN
         AND SectionID = @SectionID;
 
     SELECT 'Enrolled count updated successfully.' AS ConfirmationMessage; 
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -2402,6 +2414,10 @@ CREATE OR ALTER PROCEDURE UpdateMilestoneStatus
 @Status VARCHAR(50)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     IF NOT EXISTS (SELECT * FROM Milestone WHERE InitiativeID = @InitiativeID AND SeqNo = @SeqNo)
     BEGIN
         SELECT 'Milestone does not exist.' AS ConfirmationMessage;
@@ -2420,6 +2436,11 @@ BEGIN
         AND SeqNo = @SeqNo;
 
     SELECT 'Milestone status updated successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -2506,6 +2527,10 @@ CREATE OR ALTER PROCEDURE ReviewOutcomeMapping
 @MappingStatus VARCHAR(50)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     IF NOT EXISTS (SELECT * FROM Outcome_Mapping WHERE MappingID = @MappingID)
     BEGIN
         SELECT 'Mapping does not exist.' AS ConfirmationMessage;
@@ -2523,6 +2548,11 @@ BEGIN
     WHERE MappingID = @MappingID;
 
     SELECT 'Outcome mapping status updated successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -2553,7 +2583,7 @@ DECLARE @Total INT, @Met INT, @Result DECIMAL(5,2);
         AND oa.TargetMet = 1;
 
         IF @Total > 0
-            SET @Resukt = 100.0 * @Met / @Total;
+            SET @Result = 100.0 * @Met / @Total;
         RETURN @Result;
 END;
 GO
@@ -2626,6 +2656,10 @@ CREATE OR ALTER PROCEDURE ReviewModificationProposal
     @Comments VARCHAR(1000)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     DECLARE @ProposerID INT;
 
     SELECT @ProposerID = ProposerID
@@ -2660,6 +2694,11 @@ BEGIN
     VALUES (@Decision, 'Reviewer', @Comments, @ReviewerID, @ProposalID);
 
     SELECT 'Review decision recorded successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -2693,6 +2732,10 @@ CREATE OR ALTER PROCEDURE CreateAccreditationReview
     @NextReviewDue DATE
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     IF NOT EXISTS (SELECT * FROM Program WHERE ProgramID = @ProgramID)
     BEGIN
         SELECT 'Program does not exist.' AS ConfirmationMessage;
@@ -2709,8 +2752,12 @@ BEGIN
     VALUES (@AccreditingBody, @ReviewType, @ReviewCycle, @NextReviewDue, @ProgramID);
 
     SELECT 'Accreditation review created successfully.' AS ConfirmationMessage,
-           MAX(ReviewID) AS NewReviewID
-    FROM Accreditation_Review;
+           SCOPE_IDENTITY() AS NewReviewID;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -2719,6 +2766,10 @@ CREATE OR ALTER PROCEDURE AttachMappingsToReview
     @ReviewID INT
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     DECLARE @ProgramID INT;
     DECLARE @Count INT;
 
@@ -2751,6 +2802,11 @@ BEGIN
 
     SELECT 'Approved mappings attached successfully.' AS ConfirmationMessage,
            @Count AS AttachedMappings;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -2760,6 +2816,10 @@ CREATE OR ALTER PROCEDURE AttachAssessmentToReview
     @AssessmentID INT
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     IF NOT EXISTS (SELECT * FROM Accreditation_Review WHERE ReviewID = @ReviewID)
     BEGIN
         SELECT 'Accreditation review does not exist.' AS ConfirmationMessage;
@@ -2783,6 +2843,11 @@ BEGIN
     VALUES (@ReviewID, @AssessmentID);
 
     SELECT 'Assessment attached to review successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -2792,6 +2857,10 @@ CREATE OR ALTER PROCEDURE AttachEvidenceToReview
     @EvidenceID INT
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     IF NOT EXISTS (SELECT * FROM Accreditation_Review WHERE ReviewID = @ReviewID)
     BEGIN
         SELECT 'Accreditation review does not exist.' AS ConfirmationMessage;
@@ -2815,6 +2884,11 @@ BEGIN
     VALUES (@ReviewID, @EvidenceID);
 
     SELECT 'Evidence attached to review successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -2826,6 +2900,10 @@ CREATE OR ALTER PROCEDURE UpdateAccreditationStatus
     @SubmissionDate DATE
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     IF NOT EXISTS (SELECT * FROM Accreditation_Review WHERE ReviewID = @ReviewID)
     BEGIN
         SELECT 'Accreditation review does not exist.' AS ConfirmationMessage;
@@ -2845,6 +2923,11 @@ BEGIN
     WHERE ReviewID = @ReviewID;
 
     SELECT 'Accreditation status updated successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -2951,6 +3034,10 @@ CREATE OR ALTER PROCEDURE DecideOnProposal
     @Comments VARCHAR(1000)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     DECLARE @ProposerID INT;
     DECLARE @ProposerFaculty INT;
 
@@ -3005,6 +3092,11 @@ BEGIN
     VALUES (@Decision, 'Dean', @Comments, @DeanID, @ProposalID);
 
     SELECT 'Dean decision recorded successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -3016,6 +3108,10 @@ CREATE OR ALTER PROCEDURE DecideOnInitiative
     @Comments VARCHAR(1000)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     DECLARE @InitFaculty INT;
     DECLARE @SubmitterID INT;
     DECLARE @Status VARCHAR(50);
@@ -3060,6 +3156,8 @@ BEGIN
         RETURN;
     END
 
+    BEGIN TRAN;
+
     INSERT INTO Approval_Record (Decision, DecisionLevel, Comments, DeciderID, InitiativeID)
     VALUES (@Decision, 'Dean', @Comments, @DeanID, @InitiativeID);
 
@@ -3067,7 +3165,15 @@ BEGIN
     SET InitiativeStatus = @Decision
     WHERE InitiativeID = @InitiativeID;
 
+    COMMIT;
+
     SELECT 'Dean decision recorded successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -3078,6 +3184,10 @@ CREATE OR ALTER PROCEDURE EscalateToUniversity
     @Comments VARCHAR(1000)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     DECLARE @InitFaculty INT;
     DECLARE @Status VARCHAR(50);
 
@@ -3109,6 +3219,8 @@ BEGIN
         RETURN;
     END
 
+    BEGIN TRAN;
+
     INSERT INTO Approval_Record (Decision, DecisionLevel, Comments, DeciderID, InitiativeID)
     VALUES ('Escalated', 'Dean', @Comments, @DeanID, @InitiativeID);
 
@@ -3116,7 +3228,15 @@ BEGIN
     SET InitiativeStatus = 'Escalated'
     WHERE InitiativeID = @InitiativeID;
 
+    COMMIT;
+
     SELECT 'Initiative escalated to University Management successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -3128,6 +3248,10 @@ CREATE OR ALTER PROCEDURE AddPLO
     @Category VARCHAR(50)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     IF NOT EXISTS (SELECT * FROM Program WHERE ProgramID = @ProgramID)
     BEGIN
         SELECT 'Program does not exist.' AS ConfirmationMessage;
@@ -3156,6 +3280,11 @@ BEGIN
     VALUES (@ProgramID, @PLOCode, @Statement, @Category);
 
     SELECT 'PLO added successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -3169,6 +3298,10 @@ CREATE OR ALTER PROCEDURE CreateCurriculumVersion
     @CopyFromAcademicYear VARCHAR(50)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     IF NOT EXISTS (SELECT * FROM Program WHERE ProgramID = @ProgramID)
     BEGIN
         SELECT 'Program does not exist.' AS ConfirmationMessage;
@@ -3205,6 +3338,8 @@ BEGIN
         RETURN;
     END
 
+    BEGIN TRAN;
+
     INSERT INTO Curriculum_Version (ProgramID, VersionLabel, AcademicYear, EffectivePeriod, VersionStatus, ApprovalDate)
     VALUES (@ProgramID, @VersionLabel, @AcademicYear, @EffectivePeriod, 'Draft', NULL);
 
@@ -3218,7 +3353,15 @@ BEGIN
           AND AcademicYear = @CopyFromAcademicYear;
     END
 
+    COMMIT;
+
     SELECT 'Draft curriculum version created successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -3232,6 +3375,10 @@ CREATE OR ALTER PROCEDURE PlaceCourseInVersion
     @IsMandatory BIT
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     DECLARE @Status VARCHAR(50);
 
     SELECT @Status = VersionStatus
@@ -3283,6 +3430,11 @@ BEGIN
 
         SELECT 'Course placed in the curriculum version successfully.' AS ConfirmationMessage;
     END
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -3293,6 +3445,10 @@ CREATE OR ALTER PROCEDURE ApproveCurriculumVersion
     @AcademicYear VARCHAR(50)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     DECLARE @Status VARCHAR(50);
 
     SELECT @Status = VersionStatus
@@ -3311,6 +3467,8 @@ BEGIN
         RETURN;
     END
 
+    BEGIN TRAN;
+
     UPDATE Curriculum_Version
     SET VersionStatus = 'Archived'
     WHERE ProgramID = @ProgramID AND VersionStatus = 'Active';
@@ -3319,7 +3477,15 @@ BEGIN
     SET VersionStatus = 'Active', ApprovalDate = CURRENT_TIMESTAMP
     WHERE ProgramID = @ProgramID AND VersionLabel = @VersionLabel AND AcademicYear = @AcademicYear;
 
+    COMMIT;
+
     SELECT 'Curriculum version approved and activated successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -3372,6 +3538,10 @@ CREATE OR ALTER PROCEDURE SendOverdueAlerts
     @FacultyID INT
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     DECLARE @MaxBefore INT;
     DECLARE @Sent INT;
 
@@ -3384,6 +3554,8 @@ BEGIN
     SELECT @MaxBefore = MAX(NotificationID) FROM Notification;
     IF @MaxBefore IS NULL
         SET @MaxBefore = 0;
+
+    BEGIN TRAN;
 
     INSERT INTO Notification (MessageContent, Urgency, Category)
     SELECT 'Initiative "' + i.Title + '" (ID ' + CAST(i.InitiativeID AS VARCHAR(10)) + ') has overdue milestones.',
@@ -3407,9 +3579,17 @@ BEGIN
     WHERE n.NotificationID > @MaxBefore
       AND i.FacultyID = @FacultyID;
 
+    COMMIT;
+
     SELECT @Sent = COUNT(*) FROM Notification_Recipient WHERE NotificationID > @MaxBefore;
 
     SELECT CAST(@Sent AS VARCHAR(10)) + ' overdue alert(s) sent.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -3432,6 +3612,10 @@ CREATE OR ALTER PROCEDURE ScheduleTrainingSession
     @RequiredEquipment VARCHAR(1000)
 AS
 BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
     DECLARE @SessionID INT;
 
     IF NOT EXISTS (SELECT * FROM Tool WHERE ToolID = @ToolID)
@@ -3485,10 +3669,12 @@ BEGIN
     IF @RecordingAvailable IS NULL
         SET @RecordingAvailable = 0;
 
+    BEGIN TRAN;
+
     INSERT INTO Training_Session (Title, Topic, SessionDescription, SessionDate, DurationMinutes, Trainer, Capacity, SessionStatus, ToolID)
     VALUES (@Title, @Topic, @Description, @SessionDate, @DurationMinutes, @Trainer, @Capacity, 'Scheduled', @ToolID);
 
-    SELECT @SessionID = MAX(SessionID) FROM Training_Session;
+    SET @SessionID = SCOPE_IDENTITY();
 
     IF @Mode = 'Online'
         INSERT INTO Online_Training (SessionID, TrainingPlatform, MeetingLink, RecordingAvailable)
@@ -3497,7 +3683,15 @@ BEGIN
         INSERT INTO In_Person_Training (SessionID, Venue, Campus, RequiredEquipment)
         VALUES (@SessionID, @Venue, @Campus, @RequiredEquipment);
 
+    COMMIT;
+
     SELECT 'Training session scheduled successfully.' AS ConfirmationMessage, @SessionID AS SessionID;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
 END;
 GO
 
@@ -3605,7 +3799,9 @@ RETURN
            AND i.InitiativeStatus = 'In Progress') AS ActiveInitiatives,
 
         (SELECT COUNT(*)
-         FROM ViewFacultyPendingApprovals((SELECT DeanID FROM Faculty WHERE FacultyID = @FacultyID))) AS PendingApprovals,
+         FROM Faculty fa
+         CROSS APPLY ViewFacultyPendingApprovals(fa.DeanID) v
+         WHERE fa.FacultyID = @FacultyID) AS PendingApprovals,
 
         (SELECT COUNT(*)
          FROM Innovation_Initiative i
