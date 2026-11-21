@@ -3501,7 +3501,7 @@ BEGIN
 END;
 GO
 
---13
+
 CREATE OR ALTER FUNCTION ViewTrainingAttendance (@SessionID INT)
 RETURNS TABLE
 AS
@@ -3516,7 +3516,7 @@ RETURN
 );
 GO
 
---14
+
 CREATE OR ALTER FUNCTION GetFacultyTrainingCompliance (@FacultyID INT)
 RETURNS TABLE
 AS
@@ -3544,7 +3544,7 @@ RETURN
 );
 GO
 
---15
+
 CREATE OR ALTER FUNCTION GetInitiativeImpact (@InitiativeID INT)
 RETURNS TABLE
 AS
@@ -3575,7 +3575,7 @@ RETURN
 );
 GO
 
---16
+
 CREATE OR ALTER FUNCTION GetAverageFeedbackRating (@InitiativeID INT, @SemesterID INT)
 RETURNS DECIMAL(3,2)
 AS
@@ -3623,3 +3623,515 @@ RETURN
            AND oa.SemesterID = @SemesterID) AS PercentAssessmentsMetTarget
 );
 GO
+
+CREATE OR ALTER FUNCTION ViewEscalatedItems ()
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        'Initiative' AS ItemType,
+        i.InitiativeID AS ItemID,
+        i.Title AS Title,
+        f.FacultyName AS Faculty,
+        a.DecisionDate AS EscalationDate
+    FROM Innovation_Initiative i
+    JOIN Faculty f ON f.FacultyID = i.FacultyID
+    JOIN Approval_Record a ON a.InitiativeID = i.InitiativeID
+    WHERE i.InitiativeStatus = 'Escalated'
+      AND a.DecisionLevel = 'Dean'
+      AND a.Decision = 'Escalated'
+      AND a.ApprovalID = (
+            SELECT MAX(a2.ApprovalID)
+            FROM Approval_Record a2
+            WHERE a2.InitiativeID = i.InitiativeID
+              AND a2.DecisionLevel = 'Dean'
+              AND a2.Decision = 'Escalated'
+      )
+);
+GO
+
+
+CREATE OR ALTER PROCEDURE MakeUniversityDecision
+    @ItemType VARCHAR(20),
+    @ItemID INT,
+    @ManagerID INT,
+    @Decision VARCHAR(50),
+    @Comments VARCHAR(1000)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF @ItemType IS NULL OR @ItemType NOT IN ('Proposal', 'Initiative')
+    BEGIN
+        SELECT 'ItemType must be Proposal or Initiative' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @ItemType = 'Proposal' AND NOT EXISTS(SELECT 1 FROM Modification_Proposal WHERE ProposalID = @ItemID)
+    BEGIN
+        SELECT 'Proposal doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @ItemType = 'Initiative' AND NOT EXISTS(SELECT 1 FROM Innovation_Initiative WHERE InitiativeID = @ItemID)
+    BEGIN
+        SELECT 'Initiative doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM University_Management WHERE MemberID = @ManagerID)
+    BEGIN
+        SELECT 'Manager is not a University Management member' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @Decision IS NULL OR @Decision NOT IN ('Approved', 'Rejected', 'Returned for Revision')
+    BEGIN
+        SELECT 'Decision must be Approved, Rejected or Returned for Revision' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @ItemType = 'Initiative' AND NOT EXISTS(SELECT 1 FROM Innovation_Initiative
+                                               WHERE InitiativeID = @ItemID
+                                                 AND InitiativeStatus = 'Escalated')
+    BEGIN
+        SELECT 'Initiative is not awaiting a university decision' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @ItemType = 'Proposal' AND NOT EXISTS(SELECT 1 FROM Approval_Record
+                                             WHERE ApprovalID = (SELECT MAX(ApprovalID) FROM Approval_Record WHERE ProposalID = @ItemID)
+                                               AND DecisionLevel = 'Dean'
+                                               AND Decision = 'Escalated')
+    BEGIN
+        SELECT 'Proposal is not awaiting a university decision' AS ConfirmationMessage; RETURN;
+    END
+
+    BEGIN TRAN;
+
+    IF @ItemType = 'Proposal'
+    BEGIN
+        INSERT INTO Approval_Record (
+            Decision,
+            DecisionLevel,
+            Comments,
+            DeciderID,
+            ProposalID
+        )
+        VALUES (
+            @Decision,
+            'University',
+            @Comments,
+            @ManagerID,
+            @ItemID
+        );
+    END
+    ELSE
+    BEGIN
+        INSERT INTO Approval_Record (
+            Decision,
+            DecisionLevel,
+            Comments,
+            DeciderID,
+            InitiativeID
+        )
+        VALUES (
+            @Decision,
+            'University',
+            @Comments,
+            @ManagerID,
+            @ItemID
+        );
+
+        UPDATE Innovation_Initiative
+        SET InitiativeStatus = @Decision
+        WHERE InitiativeID = @ItemID;
+    END
+
+    COMMIT;
+
+    SELECT 'University decision recorded successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+END;
+GO
+
+
+CREATE OR ALTER FUNCTION GetUniversityDashboard
+(
+    @SemesterID INT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        f.FacultyName AS Faculty,
+        COUNT(CASE WHEN i.InitiativeStatus = 'Draft' THEN 1 END) AS Draft,
+        COUNT(CASE WHEN i.InitiativeStatus = 'Pending Approval' THEN 1 END) AS PendingApproval,
+        COUNT(CASE WHEN i.InitiativeStatus = 'Approved' THEN 1 END) AS Approved,
+        COUNT(CASE WHEN i.InitiativeStatus = 'Rejected' THEN 1 END) AS Rejected,
+        COUNT(CASE WHEN i.InitiativeStatus = 'Returned for Revision' THEN 1 END) AS ReturnedForRevision,
+        COUNT(CASE WHEN i.InitiativeStatus = 'Escalated' THEN 1 END) AS Escalated,
+        COUNT(CASE WHEN i.InitiativeStatus = 'In Progress' THEN 1 END) AS InProgress,
+        COUNT(CASE WHEN i.InitiativeStatus = 'Completed' THEN 1 END) AS Completed,
+        CAST(
+            CASE
+                WHEN COUNT(CASE WHEN i.InitiativeStatus IN ('Approved', 'In Progress', 'Completed', 'Rejected') THEN 1 END) = 0
+                    THEN 0
+                ELSE 100.0 * COUNT(CASE WHEN i.InitiativeStatus IN ('Approved', 'In Progress', 'Completed') THEN 1 END)
+                     / COUNT(CASE WHEN i.InitiativeStatus IN ('Approved', 'In Progress', 'Completed', 'Rejected') THEN 1 END)
+            END
+        AS DECIMAL(5,2)) AS ApprovalRate,
+        fb.AverageRating AS AverageFeedbackRating
+    FROM Faculty f
+    LEFT JOIN Innovation_Initiative i
+        ON i.FacultyID = f.FacultyID
+       AND i.SemesterID = @SemesterID
+    OUTER APPLY (
+        SELECT CAST(AVG(CAST(sf.Rating AS DECIMAL(10,2))) AS DECIMAL(3,2)) AS AverageRating
+        FROM Student_Feedback sf
+        JOIN Innovation_Initiative i2 ON i2.InitiativeID = sf.InitiativeID
+        WHERE i2.FacultyID = f.FacultyID
+          AND sf.SemesterID = @SemesterID
+    ) fb
+    GROUP BY f.FacultyID, f.FacultyName, fb.AverageRating
+);
+GO
+
+
+CREATE OR ALTER FUNCTION GetInitiativeStatsByType ()
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        'AI Tool Integration' AS InitiativeType,
+        i.InitiativeStatus AS Status,
+        COUNT(*) AS InitiativeCount
+    FROM AI_Tool_Integration t
+    JOIN Innovation_Initiative i ON i.InitiativeID = t.InitiativeID
+    GROUP BY i.InitiativeStatus
+
+    UNION ALL
+
+    SELECT
+        'Methodology Change' AS InitiativeType,
+        i.InitiativeStatus AS Status,
+        COUNT(*) AS InitiativeCount
+    FROM Methodology_Change t
+    JOIN Innovation_Initiative i ON i.InitiativeID = t.InitiativeID
+    GROUP BY i.InitiativeStatus
+
+    UNION ALL
+
+    SELECT
+        'Assessment Redesign' AS InitiativeType,
+        i.InitiativeStatus AS Status,
+        COUNT(*) AS InitiativeCount
+    FROM Assessment_Redesign t
+    JOIN Innovation_Initiative i ON i.InitiativeID = t.InitiativeID
+    GROUP BY i.InitiativeStatus
+);
+GO
+
+
+CREATE OR ALTER FUNCTION GetToolAdoptionReport ()
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        t.ToolName AS Tool,
+        (SELECT COUNT(*)
+         FROM Initiative_Tool it
+         WHERE it.ToolID = t.ToolID) AS NumberOfInitiatives,
+        (SELECT COUNT(DISTINCT i.FacultyID)
+         FROM Initiative_Tool it
+         JOIN Innovation_Initiative i ON i.InitiativeID = it.InitiativeID
+         WHERE it.ToolID = t.ToolID) AS NumberOfFaculties,
+        (SELECT COUNT(DISTINCT sa.MemberID)
+         FROM Session_Attendance sa
+         JOIN Training_Session ts ON ts.SessionID = sa.SessionID
+         WHERE ts.ToolID = t.ToolID) AS NumberOfTrainedMembers
+    FROM Tool t
+);
+GO
+
+
+CREATE OR ALTER FUNCTION GetApprovalTurnaround
+(
+    @FacultyID INT
+)
+RETURNS INT
+AS
+BEGIN
+    DECLARE @AverageDays INT;
+
+    SELECT @AverageDays = CAST(ROUND(AVG(CAST(d.DaysTaken AS FLOAT)), 0) AS INT)
+    FROM (
+        SELECT DATEDIFF(DAY, i.RegistrationDate, ar.DecisionDate) AS DaysTaken
+        FROM Innovation_Initiative i
+        JOIN Approval_Record ar ON ar.InitiativeID = i.InitiativeID
+        WHERE i.FacultyID = @FacultyID
+          AND ar.ApprovalID = (
+                SELECT MAX(a2.ApprovalID)
+                FROM Approval_Record a2
+                WHERE a2.InitiativeID = i.InitiativeID
+                  AND (a2.Decision = 'Rejected'
+                       OR (a2.Decision = 'Approved' AND a2.DecisionLevel IN ('Dean', 'University')))
+          )
+
+        UNION ALL
+
+        SELECT DATEDIFF(DAY, p.SubmissionDate, ar.DecisionDate) AS DaysTaken
+        FROM Modification_Proposal p
+        JOIN Academic_Member m ON m.MemberID = p.ProposerID
+        JOIN Approval_Record ar ON ar.ProposalID = p.ProposalID
+        WHERE m.FacultyID = @FacultyID
+          AND ar.ApprovalID = (
+                SELECT MAX(a2.ApprovalID)
+                FROM Approval_Record a2
+                WHERE a2.ProposalID = p.ProposalID
+                  AND (a2.Decision = 'Rejected'
+                       OR (a2.Decision = 'Approved' AND a2.DecisionLevel IN ('Dean', 'University')))
+          )
+    ) d;
+
+    RETURN @AverageDays;
+END;
+GO
+
+
+CREATE OR ALTER FUNCTION GetAccreditationOverview ()
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        p.ProgramName AS Program,
+        f.FacultyName AS Faculty,
+        r.ReviewStatus AS LatestReviewStatus,
+        r.Decision AS Decision,
+        r.NextReviewDue AS NextReviewDue
+    FROM Program p
+    JOIN Faculty f ON f.FacultyID = p.FacultyID
+    OUTER APPLY (
+        SELECT TOP 1
+            ar.ReviewStatus,
+            ar.Decision,
+            ar.NextReviewDue
+        FROM Accreditation_Review ar
+        WHERE ar.ProgramID = p.ProgramID
+        ORDER BY ar.ReviewID DESC
+    ) r
+);
+GO
+
+
+CREATE OR ALTER FUNCTION GetAttainmentTrend
+(
+    @ProgramID INT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        s.SemesterName AS Semester,
+        s.AcademicYear AS AcademicYear,
+        CAST(
+            100.0 * SUM(CASE WHEN oa.TargetMet = 1 THEN 1 ELSE 0 END) / COUNT(*)
+        AS DECIMAL(5,2)) AS PercentTargetMet
+    FROM Outcome_Assessment oa
+    JOIN Outcome_Mapping om ON om.MappingID = oa.MappingID
+    JOIN Semester s ON s.SemesterID = oa.SemesterID
+    WHERE om.ProgramID = @ProgramID
+    GROUP BY s.SemesterID, s.SemesterName, s.AcademicYear
+);
+GO
+
+
+CREATE OR ALTER FUNCTION RankInitiativesByImpact
+(
+    @MetricType VARCHAR(50)
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        RANK() OVER (ORDER BY (r.QuantitativeValue - r.BaselineValue) * 100.0 / r.BaselineValue DESC) AS ImpactRank,
+        i.InitiativeID,
+        i.Title,
+        r.BaselineValue,
+        r.QuantitativeValue AS CurrentValue,
+        CAST((r.QuantitativeValue - r.BaselineValue) * 100.0 / r.BaselineValue AS DECIMAL(10,2)) AS PercentImprovement
+    FROM Outcome_Report r
+    JOIN Innovation_Initiative i ON i.InitiativeID = r.InitiativeID
+    WHERE r.MetricType = @MetricType
+      AND r.BaselineValue IS NOT NULL
+      AND r.BaselineValue <> 0
+      AND r.QuantitativeValue IS NOT NULL
+      AND r.ReportID = (
+            SELECT MAX(r2.ReportID)
+            FROM Outcome_Report r2
+            WHERE r2.InitiativeID = r.InitiativeID
+              AND r2.MetricType = @MetricType
+      )
+);
+GO
+
+
+CREATE OR ALTER PROCEDURE UpdateToolStatus
+    @ToolID INT,
+    @Status VARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Tool WHERE ToolID = @ToolID)
+    BEGIN
+        SELECT 'Tool doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @Status IS NULL OR @Status = ''
+    BEGIN
+        SELECT 'Status cannot be empty' AS ConfirmationMessage; RETURN;
+    END
+
+    UPDATE Tool
+    SET ToolStatus = @Status
+    WHERE ToolID = @ToolID;
+
+    SELECT 'Tool status updated successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE BroadcastNotification
+    @MessageContent VARCHAR(1000),
+    @Urgency VARCHAR(50),
+    @Category VARCHAR(50),
+    @TargetRole VARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF @MessageContent IS NULL OR @MessageContent = ''
+    BEGIN
+        SELECT 'Message content cannot be empty' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @TargetRole IS NULL OR @TargetRole NOT IN ('Instructor', 'Teaching Assistant', 'Dean', 'Management', 'Curriculum Reviewer')
+    BEGIN
+        SELECT 'TargetRole must be Instructor, Teaching Assistant, Dean, Management or Curriculum Reviewer' AS ConfirmationMessage; RETURN;
+    END
+
+    DECLARE @Recipients TABLE (MemberID INT PRIMARY KEY);
+
+    IF @TargetRole = 'Instructor'
+    BEGIN
+        INSERT INTO @Recipients (MemberID) SELECT MemberID FROM Academic_Instructor;
+    END
+    ELSE IF @TargetRole = 'Teaching Assistant'
+    BEGIN
+        INSERT INTO @Recipients (MemberID) SELECT MemberID FROM Teaching_Assistant;
+    END
+    ELSE IF @TargetRole = 'Dean'
+    BEGIN
+        INSERT INTO @Recipients (MemberID) SELECT MemberID FROM Dean;
+    END
+    ELSE IF @TargetRole = 'Management'
+    BEGIN
+        INSERT INTO @Recipients (MemberID) SELECT MemberID FROM University_Management;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO @Recipients (MemberID) SELECT MemberID FROM Curriculum_Reviewer;
+    END
+
+    DECLARE @RecipientCount INT = (SELECT COUNT(*) FROM @Recipients);
+
+    IF @RecipientCount = 0
+    BEGIN
+        SELECT 'No member holds this role' AS ConfirmationMessage; RETURN;
+    END
+
+    DECLARE @NewNotificationID INT;
+
+    BEGIN TRAN;
+
+    INSERT INTO Notification (
+        MessageContent,
+        Urgency,
+        Category
+    )
+    VALUES (
+        @MessageContent,
+        @Urgency,
+        @Category
+    );
+
+    SET @NewNotificationID = SCOPE_IDENTITY();
+
+    INSERT INTO Notification_Recipient (
+        NotificationID,
+        MemberID
+    )
+    SELECT
+        @NewNotificationID,
+        MemberID
+    FROM @Recipients;
+
+    COMMIT;
+
+    SELECT 'Notification sent to ' + CAST(@RecipientCount AS VARCHAR(10)) + ' member(s).' AS ConfirmationMessage,
+        @NewNotificationID AS NewNotificationID;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+END;
+GO
+
+
+CREATE OR ALTER FUNCTION ViewItemAuditTrail
+(
+    @ItemType VARCHAR(20),
+    @ItemID INT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        al.ActionType,
+        m.FullName AS Actor,
+        al.LoggedAt AS LogTimestamp,
+        al.ChangeSummary
+    FROM Audit_Log al
+    LEFT JOIN Academic_Member m ON m.MemberID = al.ActorID
+    WHERE (@ItemType = 'Proposal' AND al.ProposalID = @ItemID)
+       OR (@ItemType = 'Approval' AND al.ApprovalID = @ItemID)
+       OR (@ItemType = 'Initiative' AND al.InitiativeID = @ItemID)
+       OR (@ItemType = 'Assessment' AND al.AssessmentID = @ItemID)
+       OR (@ItemType = 'Evidence' AND al.EvidenceID = @ItemID)
+);
+GO
+
+
+
+    
