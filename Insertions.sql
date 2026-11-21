@@ -1,10 +1,3 @@
-/* =====================================================================
-   GCAIMP - Insertions
-   Run after tables.sql on a freshly created set of tables. The IDENTITY
-   columns start at 1, so the IDs used below (Faculty 1, Member 4,
-   Mapping 7 ...) follow the order of the rows in this file.
-   ===================================================================== */
-
 SET QUOTED_IDENTIFIER ON;
 SET ANSI_NULLS ON;
 GO
@@ -13,7 +6,7 @@ GO
    1. PEOPLE & ORGANISATION
    ===================================================================== */
 
--- The Dean of each faculty is set after the Dean rows exist (see below).
+
 INSERT INTO Faculty (FacultyName, FacultyDescription, EstablishmentDate, DeanID) VALUES
 ('Faculty of Informatics and Computer Science', 'Computer science, software and data programs', '2008-09-01', NULL),
 ('Faculty of Engineering', 'Mechatronics and industrial engineering programs', '2009-09-01', NULL),
@@ -266,8 +259,6 @@ GO
    3. OUTCOMES & PROPOSALS
    ===================================================================== */
 
--- PLO3 of program 1 only has a pending and a rejected mapping, PLO4 has none:
--- both show up as "not covered by an approved mapping".
 INSERT INTO Outcome_Mapping (CoverageLevel, IsAssessmentPoint, MappingStatus, CourseCode, ILOCode, ProgramID, PLOCode) VALUES
 ('Introduced', 0, 'Approved', 'CSEN101', 'ILO1', 1, 'PLO1'),  -- 1
 ('Introduced', 1, 'Approved', 'CSEN101', 'ILO2', 1, 'PLO1'),  -- 2
@@ -285,7 +276,6 @@ INSERT INTO Outcome_Mapping (CoverageLevel, IsAssessmentPoint, MappingStatus, Co
 ('Introduced', 0, 'Approved', 'CSEN310', 'ILO1', 4, 'PLO1');  -- 14
 GO
 
--- TargetMet is computed from the two values, so it is not inserted.
 INSERT INTO Outcome_Assessment (Instrument, AssessmentDescription, TargetThreshold, AttainedValue, SampleSize, AnalysisNotes, CorrectiveAction, CourseCode, ILOCode, SemesterID, SectionID, MappingID) VALUES
 ('Final Exam Q3',       'Programming question on loops and functions',  70.00, 78.50, 45, 'Target met comfortably',                   NULL,                                  'CSEN101', 'ILO1', 3, 'S1', 1),   -- 1
 ('Final Exam Q5',       'Debugging question',                           70.00, 62.00, 45, 'Many students missed off-by-one errors',    'Add two guided debugging labs',        'CSEN101', 'ILO2', 3, 'S1', 2),   -- 2
@@ -453,7 +443,6 @@ INSERT INTO Outcome_Report (MetricType, QuantitativeValue, BaselineValue, Qualit
 ('Pass Rate',         79.00, 79.00, 'No change in the following semester',      7, 5);
 GO
 
--- Feedback is anonymous: no student is stored.
 INSERT INTO Student_Feedback (Rating, FeedbackComment, CategorySentiment, CollectionMethod, InitiativeID, SemesterID) VALUES
 (5, 'The tutor helped me find my bug quickly',   'Positive', 'Survey',      1, 5),
 (4, 'Useful, but sometimes too vague',           'Positive', 'Survey',      1, 5),
