@@ -4134,4 +4134,628 @@ GO
 
 
 
-    
+CREATE OR ALTER FUNCTION ViewMyProfile
+(
+    @MemberID INT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        m.MemberID,
+        m.FullName,
+        m.UniversityIDNo,
+        m.Email,
+        m.Phone,
+        m.AcademicRank,
+        m.EmploymentStatus,
+        m.AccountStatus,
+        f.FacultyName AS Faculty,
+        STUFF((
+            SELECT ', ' + r.RoleName
+            FROM (
+                SELECT 'Instructor' AS RoleName FROM Academic_Instructor WHERE MemberID = m.MemberID
+                UNION ALL
+                SELECT 'Teaching Assistant' FROM Teaching_Assistant WHERE MemberID = m.MemberID
+                UNION ALL
+                SELECT 'Dean' FROM Dean WHERE MemberID = m.MemberID
+                UNION ALL
+                SELECT 'Management' FROM University_Management WHERE MemberID = m.MemberID
+                UNION ALL
+                SELECT 'Curriculum Reviewer' FROM Curriculum_Reviewer WHERE MemberID = m.MemberID
+            ) r
+            FOR XML PATH(''), TYPE
+        ).value('.', 'VARCHAR(MAX)'), 1, 2, '') AS Roles,
+        STUFF((
+            SELECT ', ' + s.AccessScope
+            FROM Member_Access_Scope s
+            WHERE s.MemberID = m.MemberID
+            FOR XML PATH(''), TYPE
+        ).value('.', 'VARCHAR(MAX)'), 1, 2, '') AS AccessScopes
+    FROM Academic_Member m
+    JOIN Faculty f ON f.FacultyID = m.FacultyID
+    WHERE m.MemberID = @MemberID
+);
+GO
+
+
+CREATE OR ALTER FUNCTION ViewMyNotifications
+(
+    @MemberID INT,
+    @UnreadOnly BIT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        n.NotificationID,
+        n.MessageContent,
+        n.CreatedAt,
+        n.Urgency,
+        n.Category,
+        nr.ReadStatus
+    FROM Notification_Recipient nr
+    JOIN Notification n ON n.NotificationID = nr.NotificationID
+    WHERE nr.MemberID = @MemberID
+      AND (ISNULL(@UnreadOnly, 0) = 0 OR nr.ReadStatus = 0)
+);
+GO
+
+
+CREATE OR ALTER FUNCTION GetUnreadNotificationCount
+(
+    @MemberID INT
+)
+RETURNS INT
+AS
+BEGIN
+    DECLARE @UnreadCount INT;
+
+    SELECT @UnreadCount = COUNT(*)
+    FROM Notification_Recipient
+    WHERE MemberID = @MemberID
+      AND ReadStatus = 0;
+
+    RETURN @UnreadCount;
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE MarkNotificationRead
+    @NotificationID INT,
+    @MemberID INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Notification_Recipient
+                  WHERE NotificationID = @NotificationID
+                    AND MemberID = @MemberID)
+    BEGIN
+        SELECT 'This member has no such notification' AS ConfirmationMessage; RETURN;
+    END
+
+    UPDATE Notification_Recipient
+    SET ReadStatus = 1
+    WHERE NotificationID = @NotificationID
+      AND MemberID = @MemberID;
+
+    SELECT 'Notification marked as read.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+END;
+GO
+
+
+CREATE OR ALTER FUNCTION ViewMyInitiatives
+(
+    @MemberID INT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        i.InitiativeID,
+        i.Title,
+        'Submitter' AS MyRole,
+        i.InitiativeStatus AS Status,
+        i.ImplementationDeadline AS Deadline
+    FROM Innovation_Initiative i
+    WHERE i.SubmitterID = @MemberID
+
+    UNION ALL
+
+    SELECT
+        i.InitiativeID,
+        i.Title,
+        im.MemberRole AS MyRole,
+        i.InitiativeStatus AS Status,
+        i.ImplementationDeadline AS Deadline
+    FROM Initiative_Member im
+    JOIN Innovation_Initiative i ON i.InitiativeID = im.InitiativeID
+    WHERE im.MemberID = @MemberID
+      AND i.SubmitterID <> @MemberID
+);
+GO
+
+
+CREATE OR ALTER FUNCTION ViewAvailableTrainingSessions
+(
+    @ToolID INT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        ts.SessionID,
+        ts.Title,
+        ts.SessionDate AS SessionDate,
+        CASE
+            WHEN EXISTS(SELECT 1 FROM Online_Training o WHERE o.SessionID = ts.SessionID) THEN 'Online'
+            WHEN EXISTS(SELECT 1 FROM In_Person_Training p WHERE p.SessionID = ts.SessionID) THEN 'In Person'
+        END AS Mode,
+        ts.Trainer,
+        CASE
+            WHEN ts.Capacity - (SELECT COUNT(*) FROM Session_Attendance sa WHERE sa.SessionID = ts.SessionID) < 0 THEN 0
+            ELSE ts.Capacity - (SELECT COUNT(*) FROM Session_Attendance sa WHERE sa.SessionID = ts.SessionID)
+        END AS RemainingSeats
+    FROM Training_Session ts
+    WHERE ts.ToolID = @ToolID
+      AND ts.SessionDate >= CAST(GETDATE() AS DATE)
+);
+GO
+
+
+CREATE OR ALTER FUNCTION GetRemainingSeats
+(
+    @SessionID INT
+)
+RETURNS INT
+AS
+BEGIN
+    DECLARE @RemainingSeats INT;
+
+    SELECT @RemainingSeats =
+        CASE
+            WHEN ts.Capacity - (SELECT COUNT(*) FROM Session_Attendance sa WHERE sa.SessionID = ts.SessionID) < 0 THEN 0
+            ELSE ts.Capacity - (SELECT COUNT(*) FROM Session_Attendance sa WHERE sa.SessionID = ts.SessionID)
+        END
+    FROM Training_Session ts
+    WHERE ts.SessionID = @SessionID;
+
+    RETURN @RemainingSeats;
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE RegisterForTraining
+    @SessionID INT,
+    @MemberID INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Training_Session WHERE SessionID = @SessionID)
+    BEGIN
+        SELECT 'Session doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    DECLARE @Capacity INT;
+    DECLARE @Registered INT;
+
+    BEGIN TRAN;
+
+    SELECT @Registered = COUNT(*)
+    FROM Session_Attendance WITH (UPDLOCK, HOLDLOCK)
+    WHERE SessionID = @SessionID;
+
+    SELECT @Capacity = Capacity
+    FROM Training_Session
+    WHERE SessionID = @SessionID;
+
+    IF @Registered >= @Capacity
+    BEGIN
+        ROLLBACK;
+        SELECT 'No seats are available in this session' AS ConfirmationMessage; RETURN;
+    END
+
+    INSERT INTO Session_Attendance (
+        SessionID,
+        MemberID
+    )
+    VALUES (
+        @SessionID,
+        @MemberID
+    );
+
+    COMMIT;
+
+    SELECT 'Registered for the training session successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE CancelTrainingRegistration
+    @SessionID INT,
+    @MemberID INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Session_Attendance
+                  WHERE SessionID = @SessionID
+                    AND MemberID = @MemberID)
+    BEGIN
+        SELECT 'The member is not registered for this session' AS ConfirmationMessage; RETURN;
+    END
+
+    IF EXISTS(SELECT 1 FROM Training_Session
+              WHERE SessionID = @SessionID
+                AND SessionDate <= CAST(GETDATE() AS DATE))
+    BEGIN
+        SELECT 'The session has already taken place or is today' AS ConfirmationMessage; RETURN;
+    END
+
+    DELETE FROM Session_Attendance
+    WHERE SessionID = @SessionID
+      AND MemberID = @MemberID;
+
+    SELECT 'Registration cancelled successfully.' AS ConfirmationMessage;
+    END TRY
+
+    BEGIN CATCH
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+END;
+GO
+
+
+CREATE OR ALTER FUNCTION ViewMyTrainingHistory
+(
+    @MemberID INT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        ts.SessionID,
+        ts.Title AS SessionTitle,
+        t.ToolName AS Tool,
+        ts.SessionDate AS SessionDate,
+        CASE
+            WHEN EXISTS(SELECT 1 FROM Online_Training o WHERE o.SessionID = ts.SessionID) THEN 'Online'
+            WHEN EXISTS(SELECT 1 FROM In_Person_Training p WHERE p.SessionID = ts.SessionID) THEN 'In Person'
+        END AS Mode
+    FROM Session_Attendance sa
+    JOIN Training_Session ts ON ts.SessionID = sa.SessionID
+    JOIN Tool t ON t.ToolID = ts.ToolID
+    WHERE sa.MemberID = @MemberID
+      AND ts.SessionDate <= CAST(GETDATE() AS DATE)
+);
+GO
+
+
+CREATE OR ALTER FUNCTION ViewMyPendingTraining
+(
+    @MemberID INT
+)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        i.Title AS Initiative,
+        tr.RequirementDescription AS Requirement,
+        t.ToolName AS Tool,
+        tr.RequiredByDate AS RequiredByDate
+    FROM Training_Requirement tr
+    JOIN Innovation_Initiative i ON i.InitiativeID = tr.InitiativeID
+    JOIN Tool t ON t.ToolID = tr.ToolID
+    WHERE tr.IsMandatory = 1
+      AND EXISTS(SELECT 1 FROM Initiative_Member im
+                 WHERE im.InitiativeID = tr.InitiativeID
+                   AND im.MemberID = @MemberID)
+      AND NOT EXISTS(SELECT 1
+                     FROM Session_Attendance sa
+                     JOIN Training_Session ts ON ts.SessionID = sa.SessionID
+                     WHERE sa.MemberID = @MemberID
+                       AND ts.ToolID = tr.ToolID
+                       AND ts.SessionDate <= CAST(GETDATE() AS DATE))
+);
+GO
+
+
+CREATE OR ALTER PROCEDURE NotifyApprovalDecision
+    @MemberID INT,
+    @ItemType VARCHAR(20),
+    @ItemID INT,
+    @Decision VARCHAR(50)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF @ItemType IS NULL OR @ItemType NOT IN ('Proposal', 'Initiative')
+    BEGIN
+        SELECT 'ItemType must be Proposal or Initiative' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @ItemType = 'Proposal' AND NOT EXISTS(SELECT 1 FROM Modification_Proposal WHERE ProposalID = @ItemID)
+    BEGIN
+        SELECT 'Proposal doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @ItemType = 'Initiative' AND NOT EXISTS(SELECT 1 FROM Innovation_Initiative WHERE InitiativeID = @ItemID)
+    BEGIN
+        SELECT 'Initiative doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @ItemType = 'Proposal' AND NOT EXISTS(SELECT 1 FROM Modification_Proposal
+                                             WHERE ProposalID = @ItemID
+                                               AND ProposerID = @MemberID)
+    BEGIN
+        SELECT 'The member did not submit this proposal' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @ItemType = 'Initiative' AND NOT EXISTS(SELECT 1 FROM Innovation_Initiative
+                                               WHERE InitiativeID = @ItemID
+                                                 AND SubmitterID = @MemberID)
+    BEGIN
+        SELECT 'The member did not submit this initiative' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @Decision IS NULL OR @Decision = ''
+    BEGIN
+        SELECT 'Decision cannot be empty' AS ConfirmationMessage; RETURN;
+    END
+
+    DECLARE @ItemTitle VARCHAR(150);
+    DECLARE @Message VARCHAR(1000);
+    DECLARE @NewNotificationID INT;
+
+    IF @ItemType = 'Proposal'
+    BEGIN
+        SELECT @ItemTitle = Title FROM Modification_Proposal WHERE ProposalID = @ItemID;
+    END
+    ELSE
+    BEGIN
+        SELECT @ItemTitle = Title FROM Innovation_Initiative WHERE InitiativeID = @ItemID;
+    END
+
+    SET @Message = 'A decision was made on your ' + LOWER(@ItemType) + ' "' + @ItemTitle + '" (ID ' + CAST(@ItemID AS VARCHAR(10)) + '): ' + @Decision + '.';
+
+    BEGIN TRAN;
+
+    INSERT INTO Notification (
+        MessageContent,
+        Urgency,
+        Category
+    )
+    VALUES (
+        @Message,
+        'Normal',
+        'Approval Decision'
+    );
+
+    SET @NewNotificationID = SCOPE_IDENTITY();
+
+    INSERT INTO Notification_Recipient (
+        NotificationID,
+        MemberID
+    )
+    VALUES (
+        @NewNotificationID,
+        @MemberID
+    );
+
+    COMMIT;
+
+    SELECT @Message AS ConfirmationMessage,
+        @NewNotificationID AS NewNotificationID;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE NotifyOverdueMilestone
+    @MemberID INT,
+    @InitiativeID INT,
+    @SeqNo INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Academic_Member WHERE MemberID = @MemberID)
+    BEGIN
+        SELECT 'Member doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Milestone WHERE InitiativeID = @InitiativeID AND SeqNo = @SeqNo)
+    BEGIN
+        SELECT 'Milestone doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Milestone
+                  WHERE InitiativeID = @InitiativeID
+                    AND SeqNo = @SeqNo
+                    AND DueDate < CAST(GETDATE() AS DATE)
+                    AND MilestoneStatus <> 'Completed')
+    BEGIN
+        SELECT 'The milestone is not overdue' AS ConfirmationMessage; RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1 FROM Innovation_Initiative WHERE InitiativeID = @InitiativeID AND SubmitterID = @MemberID)
+       AND NOT EXISTS(SELECT 1 FROM Initiative_Member WHERE InitiativeID = @InitiativeID AND MemberID = @MemberID)
+    BEGIN
+        SELECT 'The member is not responsible for this initiative' AS ConfirmationMessage; RETURN;
+    END
+
+    DECLARE @MilestoneTitle VARCHAR(150);
+    DECLARE @DueDate DATE;
+    DECLARE @InitiativeTitle VARCHAR(150);
+    DECLARE @Message VARCHAR(1000);
+    DECLARE @NewNotificationID INT;
+
+    SELECT
+        @MilestoneTitle = m.Title,
+        @DueDate = m.DueDate,
+        @InitiativeTitle = i.Title
+    FROM Milestone m
+    JOIN Innovation_Initiative i ON i.InitiativeID = m.InitiativeID
+    WHERE m.InitiativeID = @InitiativeID
+      AND m.SeqNo = @SeqNo;
+
+    SET @Message = 'Milestone ' + CAST(@SeqNo AS VARCHAR(10)) + ' "' + @MilestoneTitle + '" of initiative "' + @InitiativeTitle + '" was due on ' + CONVERT(VARCHAR(10), @DueDate, 23) + ' and is overdue.';
+
+    BEGIN TRAN;
+
+    INSERT INTO Notification (
+        MessageContent,
+        Urgency,
+        Category
+    )
+    VALUES (
+        @Message,
+        'High',
+        'Overdue Milestone'
+    );
+
+    SET @NewNotificationID = SCOPE_IDENTITY();
+
+    INSERT INTO Notification_Recipient (
+        NotificationID,
+        MemberID
+    )
+    VALUES (
+        @NewNotificationID,
+        @MemberID
+    );
+
+    COMMIT;
+
+    SELECT @Message AS ConfirmationMessage,
+        @NewNotificationID AS NewNotificationID;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+END;
+GO
+
+
+CREATE OR ALTER PROCEDURE NotifyAccreditationDeadline
+    @ProgramID INT,
+    @DaysAhead INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    BEGIN TRY
+
+    IF NOT EXISTS(SELECT 1 FROM Program WHERE ProgramID = @ProgramID)
+    BEGIN
+        SELECT 'Program doesnt exist' AS ConfirmationMessage; RETURN;
+    END
+
+    IF @DaysAhead IS NULL OR @DaysAhead < 0
+    BEGIN
+        SELECT 'DaysAhead cannot be NULL or negative' AS ConfirmationMessage; RETURN;
+    END
+
+    DECLARE @NextDue DATE;
+
+    SELECT @NextDue = MIN(NextReviewDue)
+    FROM Accreditation_Review
+    WHERE ProgramID = @ProgramID
+      AND NextReviewDue >= CAST(GETDATE() AS DATE)
+      AND NextReviewDue <= DATEADD(DAY, @DaysAhead, CAST(GETDATE() AS DATE));
+
+    IF @NextDue IS NULL
+    BEGIN
+        SELECT 'No accreditation review of this program is due in that period' AS ConfirmationMessage; RETURN;
+    END
+
+    IF NOT EXISTS(SELECT 1
+                  FROM Academic_Member m
+                  JOIN Program p ON p.FacultyID = m.FacultyID
+                  WHERE p.ProgramID = @ProgramID)
+    BEGIN
+        SELECT 'No member belongs to the faculty of this program' AS ConfirmationMessage; RETURN;
+    END
+
+    DECLARE @ProgramName VARCHAR(150);
+    DECLARE @Message VARCHAR(1000);
+    DECLARE @NewNotificationID INT;
+
+    SELECT @ProgramName = ProgramName FROM Program WHERE ProgramID = @ProgramID;
+
+    SET @Message = 'The next accreditation review of program "' + @ProgramName + '" is due on ' + CONVERT(VARCHAR(10), @NextDue, 23) + ' (within ' + CAST(@DaysAhead AS VARCHAR(10)) + ' days).';
+
+    BEGIN TRAN;
+
+    INSERT INTO Notification (
+        MessageContent,
+        Urgency,
+        Category
+    )
+    VALUES (
+        @Message,
+        'High',
+        'Accreditation Deadline'
+    );
+
+    SET @NewNotificationID = SCOPE_IDENTITY();
+
+    INSERT INTO Notification_Recipient (
+        NotificationID,
+        MemberID
+    )
+    SELECT
+        @NewNotificationID,
+        m.MemberID
+    FROM Academic_Member m
+    JOIN Program p ON p.FacultyID = m.FacultyID
+    WHERE p.ProgramID = @ProgramID;
+
+    COMMIT;
+
+    SELECT @Message AS ConfirmationMessage,
+        @NewNotificationID AS NewNotificationID;
+    END TRY
+
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0 ROLLBACK;
+        SELECT 'Error: ' + ERROR_MESSAGE() AS ConfirmationMessage;
+    END CATCH
+END;
+GO
