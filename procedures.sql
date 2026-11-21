@@ -2929,7 +2929,7 @@ AS
 
         UNION ALL
 
-        SELECT 'Initiative',
+        SELECT 'Initiative' AS ItemType,
                i.InitiativeID AS ItemID,
                i.Title AS Title,
                m.FullName AS Submitter,
