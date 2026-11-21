@@ -2902,3 +2902,724 @@ RETURN
     WHERE ar.NextReviewDue > CURRENT_TIMESTAMP - 1
       AND ar.NextReviewDue <= CURRENT_TIMESTAMP + @DaysAhead;
 GO
+
+--Dean 
+--1
+CREATE OR ALTER FUNCTION ViewFacultyPendingApprovals(@DeanID INT)
+RETURNS TABLE
+AS
+    RETURN
+    (
+        SELECT 'Proposal' AS ItemType,
+               p.ProposalID AS ItemID,
+               p.Title AS Title,
+               m.FullName AS Submitter,
+               p.SubmissionDate AS SubmissionDate
+        FROM Faculty f
+        INNER JOIN Academic_Member m ON m.FacultyID = f.FacultyID
+        INNER JOIN Modification_Proposal p ON p.ProposerID = m.MemberID
+        WHERE f.DeanID = @DeanID
+          AND EXISTS (SELECT * FROM Approval_Record ar
+                      WHERE ar.ProposalID = p.ProposalID
+                        AND ar.DecisionLevel = 'Reviewer'
+                        AND ar.Decision = 'Approved'
+                        AND ar.ApprovalID = (SELECT MAX(ApprovalID)
+                                             FROM Approval_Record
+                                             WHERE ProposalID = p.ProposalID))
+
+        UNION ALL
+
+        SELECT 'Initiative',
+               i.InitiativeID AS ItemID,
+               i.Title AS Title,
+               m.FullName AS Submitter,
+               i.RegistrationDate AS SubmissionDate
+        FROM Faculty f
+        INNER JOIN Innovation_Initiative i ON i.FacultyID = f.FacultyID
+        INNER JOIN Academic_Member m ON m.MemberID = i.SubmitterID
+        WHERE f.DeanID = @DeanID
+          AND i.InitiativeStatus = 'Pending Approval'
+    );
+GO
+
+
+--2
+CREATE OR ALTER PROCEDURE DecideOnProposal
+    @ProposalID INT,
+    @DeanID INT,
+    @Decision VARCHAR(50),
+    @Comments VARCHAR(1000)
+AS
+BEGIN
+    DECLARE @ProposerID INT;
+    DECLARE @ProposerFaculty INT;
+
+    SELECT @ProposerID = p.ProposerID, @ProposerFaculty = m.FacultyID
+    FROM Modification_Proposal p
+    INNER JOIN Academic_Member m ON m.MemberID = p.ProposerID
+    WHERE p.ProposalID = @ProposalID;
+
+    IF @ProposerID IS NULL
+    BEGIN
+        SELECT 'Proposal does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Dean WHERE MemberID = @DeanID)
+    BEGIN
+        SELECT 'Member is not a dean.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Faculty WHERE FacultyID = @ProposerFaculty AND DeanID = @DeanID)
+    BEGIN
+        SELECT 'The proposal does not belong to your faculty.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @ProposerID = @DeanID
+    BEGIN
+        SELECT 'A dean cannot decide on their own proposal.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Decision IS NULL OR @Decision NOT IN ('Approved', 'Rejected', 'Returned for Revision')
+    BEGIN
+        SELECT 'Decision must be Approved, Rejected or Returned for Revision.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Approval_Record ar
+                   WHERE ar.ProposalID = @ProposalID
+                     AND ar.DecisionLevel = 'Reviewer'
+                     AND ar.Decision = 'Approved'
+                     AND ar.ApprovalID = (SELECT MAX(ar2.ApprovalID)
+                                          FROM Approval_Record ar2
+                                          WHERE ar2.ProposalID = @ProposalID))
+    BEGIN
+        SELECT 'The proposal is not awaiting a dean decision (it needs a reviewer approval first).' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    INSERT INTO Approval_Record (Decision, DecisionLevel, Comments, DeciderID, ProposalID)
+    VALUES (@Decision, 'Dean', @Comments, @DeanID, @ProposalID);
+
+    SELECT 'Dean decision recorded successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--3
+CREATE OR ALTER PROCEDURE DecideOnInitiative
+    @InitiativeID INT,
+    @DeanID INT,
+    @Decision VARCHAR(50),
+    @Comments VARCHAR(1000)
+AS
+BEGIN
+    DECLARE @InitFaculty INT;
+    DECLARE @SubmitterID INT;
+    DECLARE @Status VARCHAR(50);
+
+    SELECT @InitFaculty = FacultyID, @SubmitterID = SubmitterID, @Status = InitiativeStatus
+    FROM Innovation_Initiative
+    WHERE InitiativeID = @InitiativeID;
+
+    IF @InitFaculty IS NULL
+    BEGIN
+        SELECT 'Initiative does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Dean WHERE MemberID = @DeanID)
+    BEGIN
+        SELECT 'Member is not a dean.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Faculty WHERE FacultyID = @InitFaculty AND DeanID = @DeanID)
+    BEGIN
+        SELECT 'The initiative does not belong to your faculty.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @SubmitterID = @DeanID
+    BEGIN
+        SELECT 'A dean cannot decide on their own initiative.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Decision IS NULL OR @Decision NOT IN ('Approved', 'Rejected', 'Returned for Revision')
+    BEGIN
+        SELECT 'Decision must be Approved, Rejected or Returned for Revision.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Status <> 'Pending Approval'
+    BEGIN
+        SELECT 'Only an initiative that is Pending Approval can be decided.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    INSERT INTO Approval_Record (Decision, DecisionLevel, Comments, DeciderID, InitiativeID)
+    VALUES (@Decision, 'Dean', @Comments, @DeanID, @InitiativeID);
+
+    UPDATE Innovation_Initiative
+    SET InitiativeStatus = @Decision
+    WHERE InitiativeID = @InitiativeID;
+
+    SELECT 'Dean decision recorded successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--4
+CREATE OR ALTER PROCEDURE EscalateToUniversity
+    @InitiativeID INT,
+    @DeanID INT,
+    @Comments VARCHAR(1000)
+AS
+BEGIN
+    DECLARE @InitFaculty INT;
+    DECLARE @Status VARCHAR(50);
+
+    SELECT @InitFaculty = FacultyID, @Status = InitiativeStatus
+    FROM Innovation_Initiative
+    WHERE InitiativeID = @InitiativeID;
+
+    IF @InitFaculty IS NULL
+    BEGIN
+        SELECT 'Initiative does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Dean WHERE MemberID = @DeanID)
+    BEGIN
+        SELECT 'Member is not a dean.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Faculty WHERE FacultyID = @InitFaculty AND DeanID = @DeanID)
+    BEGIN
+        SELECT 'The initiative does not belong to your faculty.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Status <> 'Pending Approval'
+    BEGIN
+        SELECT 'Only an initiative that is Pending Approval can be escalated.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    INSERT INTO Approval_Record (Decision, DecisionLevel, Comments, DeciderID, InitiativeID)
+    VALUES ('Escalated', 'Dean', @Comments, @DeanID, @InitiativeID);
+
+    UPDATE Innovation_Initiative
+    SET InitiativeStatus = 'Escalated'
+    WHERE InitiativeID = @InitiativeID;
+
+    SELECT 'Initiative escalated to University Management successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--5
+CREATE OR ALTER PROCEDURE AddPLO
+    @ProgramID INT,
+    @PLOCode VARCHAR(20),
+    @Statement VARCHAR(1000),
+    @Category VARCHAR(50)
+AS
+BEGIN
+    IF NOT EXISTS (SELECT * FROM Program WHERE ProgramID = @ProgramID)
+    BEGIN
+        SELECT 'Program does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @PLOCode IS NULL OR @PLOCode = ''
+    BEGIN
+        SELECT 'PLO code is required.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Statement IS NULL OR @Statement = ''
+    BEGIN
+        SELECT 'PLO statement is required.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF EXISTS (SELECT * FROM PLO WHERE ProgramID = @ProgramID AND PLOCode = @PLOCode)
+    BEGIN
+        SELECT 'This program already has a PLO with that code.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    INSERT INTO PLO (ProgramID, PLOCode, PLOStatement, Category)
+    VALUES (@ProgramID, @PLOCode, @Statement, @Category);
+
+    SELECT 'PLO added successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--6
+CREATE OR ALTER PROCEDURE CreateCurriculumVersion
+    @ProgramID INT,
+    @VersionLabel VARCHAR(20),
+    @AcademicYear VARCHAR(50),
+    @EffectivePeriod VARCHAR(50),
+    @CopyFromVersionLabel VARCHAR(20),
+    @CopyFromAcademicYear VARCHAR(50)
+AS
+BEGIN
+    IF NOT EXISTS (SELECT * FROM Program WHERE ProgramID = @ProgramID)
+    BEGIN
+        SELECT 'Program does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @VersionLabel IS NULL OR @VersionLabel = '' OR @AcademicYear IS NULL OR @AcademicYear = ''
+    BEGIN
+        SELECT 'Version label and academic year are required.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF EXISTS (SELECT * FROM Curriculum_Version
+               WHERE ProgramID = @ProgramID AND VersionLabel = @VersionLabel AND AcademicYear = @AcademicYear)
+    BEGIN
+        SELECT 'This curriculum version already exists.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF (@CopyFromVersionLabel IS NULL AND @CopyFromAcademicYear IS NOT NULL)
+       OR (@CopyFromVersionLabel IS NOT NULL AND @CopyFromAcademicYear IS NULL)
+    BEGIN
+        SELECT 'Give both the version label and the academic year to copy from, or neither.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @CopyFromVersionLabel IS NOT NULL
+       AND NOT EXISTS (SELECT * FROM Curriculum_Version
+                       WHERE ProgramID = @ProgramID
+                         AND VersionLabel = @CopyFromVersionLabel
+                         AND AcademicYear = @CopyFromAcademicYear)
+    BEGIN
+        SELECT 'The version to copy from does not exist for this program.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    INSERT INTO Curriculum_Version (ProgramID, VersionLabel, AcademicYear, EffectivePeriod, VersionStatus, ApprovalDate)
+    VALUES (@ProgramID, @VersionLabel, @AcademicYear, @EffectivePeriod, 'Draft', NULL);
+
+    IF @CopyFromVersionLabel IS NOT NULL
+    BEGIN
+        INSERT INTO Version_Course (ProgramID, VersionLabel, AcademicYear, CourseCode, StudySemesterNo, IsMandatory)
+        SELECT @ProgramID, @VersionLabel, @AcademicYear, CourseCode, StudySemesterNo, IsMandatory
+        FROM Version_Course
+        WHERE ProgramID = @ProgramID
+          AND VersionLabel = @CopyFromVersionLabel
+          AND AcademicYear = @CopyFromAcademicYear;
+    END
+
+    SELECT 'Draft curriculum version created successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--7
+CREATE OR ALTER PROCEDURE PlaceCourseInVersion
+    @ProgramID INT,
+    @VersionLabel VARCHAR(20),
+    @AcademicYear VARCHAR(50),
+    @CourseCode VARCHAR(20),
+    @StudySemesterNo INT,
+    @IsMandatory BIT
+AS
+BEGIN
+    DECLARE @Status VARCHAR(50);
+
+    SELECT @Status = VersionStatus
+    FROM Curriculum_Version
+    WHERE ProgramID = @ProgramID AND VersionLabel = @VersionLabel AND AcademicYear = @AcademicYear;
+
+    IF @Status IS NULL
+    BEGIN
+        SELECT 'Curriculum version does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Status <> 'Draft'
+    BEGIN
+        SELECT 'Courses can only be placed in a Draft curriculum version.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF NOT EXISTS (SELECT * FROM Course WHERE CourseCode = @CourseCode)
+    BEGIN
+        SELECT 'Course does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @StudySemesterNo IS NULL OR @StudySemesterNo <= 0
+    BEGIN
+        SELECT 'Study semester must be a positive number.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @IsMandatory IS NULL
+        SET @IsMandatory = 1;
+
+    IF EXISTS (SELECT * FROM Version_Course
+               WHERE ProgramID = @ProgramID AND VersionLabel = @VersionLabel
+                 AND AcademicYear = @AcademicYear AND CourseCode = @CourseCode)
+    BEGIN
+        UPDATE Version_Course
+        SET StudySemesterNo = @StudySemesterNo, IsMandatory = @IsMandatory
+        WHERE ProgramID = @ProgramID AND VersionLabel = @VersionLabel
+          AND AcademicYear = @AcademicYear AND CourseCode = @CourseCode;
+
+        SELECT 'Course placement updated successfully.' AS ConfirmationMessage;
+    END
+    ELSE
+    BEGIN
+        INSERT INTO Version_Course (ProgramID, VersionLabel, AcademicYear, CourseCode, StudySemesterNo, IsMandatory)
+        VALUES (@ProgramID, @VersionLabel, @AcademicYear, @CourseCode, @StudySemesterNo, @IsMandatory);
+
+        SELECT 'Course placed in the curriculum version successfully.' AS ConfirmationMessage;
+    END
+END;
+GO
+
+--8
+CREATE OR ALTER PROCEDURE ApproveCurriculumVersion
+    @ProgramID INT,
+    @VersionLabel VARCHAR(20),
+    @AcademicYear VARCHAR(50)
+AS
+BEGIN
+    DECLARE @Status VARCHAR(50);
+
+    SELECT @Status = VersionStatus
+    FROM Curriculum_Version
+    WHERE ProgramID = @ProgramID AND VersionLabel = @VersionLabel AND AcademicYear = @AcademicYear;
+
+    IF @Status IS NULL
+    BEGIN
+        SELECT 'Curriculum version does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Status <> 'Draft'
+    BEGIN
+        SELECT 'Only a Draft curriculum version can be approved.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    UPDATE Curriculum_Version
+    SET VersionStatus = 'Archived'
+    WHERE ProgramID = @ProgramID AND VersionStatus = 'Active';
+
+    UPDATE Curriculum_Version
+    SET VersionStatus = 'Active', ApprovalDate = CURRENT_TIMESTAMP
+    WHERE ProgramID = @ProgramID AND VersionLabel = @VersionLabel AND AcademicYear = @AcademicYear;
+
+    SELECT 'Curriculum version approved and activated successfully.' AS ConfirmationMessage;
+END;
+GO
+
+--9
+CREATE OR ALTER FUNCTION ViewFacultyInitiatives (@FacultyID INT, @Status VARCHAR(50))
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT i.InitiativeID,
+           i.Title,
+           i.CourseCode,
+           s.SemesterName,
+           i.SectionID,
+           m.FullName AS Submitter,
+           i.ImplementationDeadline,
+           i.InitiativeStatus
+    FROM Innovation_Initiative i
+    INNER JOIN Semester s ON s.SemesterID = i.SemesterID
+    INNER JOIN Academic_Member m ON m.MemberID = i.SubmitterID
+    WHERE i.FacultyID = @FacultyID
+      AND (@Status IS NULL OR i.InitiativeStatus = @Status)
+);
+GO
+
+--10
+CREATE OR ALTER FUNCTION ViewOverdueMilestones (@FacultyID INT)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT i.InitiativeID,
+           i.Title AS InitiativeTitle,
+           ms.SeqNo,
+           ms.Title AS MilestoneTitle,
+           ms.DueDate,
+           a.FullName AS AssignedMember
+    FROM Innovation_Initiative i
+    INNER JOIN Milestone ms ON ms.InitiativeID = i.InitiativeID
+    LEFT OUTER JOIN Initiative_Member im ON im.InitiativeID = i.InitiativeID
+    LEFT OUTER JOIN Academic_Member a ON a.MemberID = im.MemberID
+    WHERE i.FacultyID = @FacultyID
+      AND ms.MilestoneStatus <> 'Completed'
+      AND ms.DueDate < CURRENT_TIMESTAMP - 1
+);
+GO
+
+--11
+CREATE OR ALTER PROCEDURE SendOverdueAlerts
+    @FacultyID INT
+AS
+BEGIN
+    DECLARE @MaxBefore INT;
+    DECLARE @Sent INT;
+
+    IF NOT EXISTS (SELECT * FROM Faculty WHERE FacultyID = @FacultyID)
+    BEGIN
+        SELECT 'Faculty does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    SELECT @MaxBefore = MAX(NotificationID) FROM Notification;
+    IF @MaxBefore IS NULL
+        SET @MaxBefore = 0;
+
+    INSERT INTO Notification (MessageContent, Urgency, Category)
+    SELECT 'Initiative "' + i.Title + '" (ID ' + CAST(i.InitiativeID AS VARCHAR(10)) + ') has overdue milestones.',
+           'High',
+           'Overdue Alert'
+    FROM Innovation_Initiative i
+    WHERE i.FacultyID = @FacultyID
+      AND EXISTS (SELECT * FROM Milestone ms
+                  WHERE ms.InitiativeID = i.InitiativeID
+                    AND ms.MilestoneStatus <> 'Completed'
+                    AND ms.DueDate < CURRENT_TIMESTAMP - 1)
+      AND EXISTS (SELECT * FROM Initiative_Member im
+                  WHERE im.InitiativeID = i.InitiativeID);
+
+    INSERT INTO Notification_Recipient (NotificationID, MemberID, ReadStatus)
+    SELECT n.NotificationID, im.MemberID, 0
+    FROM Notification n
+    INNER JOIN Innovation_Initiative i
+        ON n.MessageContent = 'Initiative "' + i.Title + '" (ID ' + CAST(i.InitiativeID AS VARCHAR(10)) + ') has overdue milestones.'
+    INNER JOIN Initiative_Member im ON im.InitiativeID = i.InitiativeID
+    WHERE n.NotificationID > @MaxBefore
+      AND i.FacultyID = @FacultyID;
+
+    SELECT @Sent = COUNT(*) FROM Notification_Recipient WHERE NotificationID > @MaxBefore;
+
+    SELECT CAST(@Sent AS VARCHAR(10)) + ' overdue alert(s) sent.' AS ConfirmationMessage;
+END;
+GO
+
+--12
+CREATE OR ALTER PROCEDURE ScheduleTrainingSession
+    @ToolID INT,
+    @Title VARCHAR(150),
+    @Topic VARCHAR(150),
+    @Description VARCHAR(1000),
+    @SessionDate DATE,
+    @DurationMinutes INT,
+    @Trainer VARCHAR(150),
+    @Capacity INT,
+    @Mode VARCHAR(20),
+    @Platform VARCHAR(50),
+    @MeetingLink VARCHAR(1000),
+    @RecordingAvailable BIT,
+    @Venue VARCHAR(150),
+    @Campus VARCHAR(50),
+    @RequiredEquipment VARCHAR(1000)
+AS
+BEGIN
+    DECLARE @SessionID INT;
+
+    IF NOT EXISTS (SELECT * FROM Tool WHERE ToolID = @ToolID)
+    BEGIN
+        SELECT 'Tool does not exist.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Title IS NULL OR @Title = ''
+    BEGIN
+        SELECT 'Session title is required.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @SessionDate IS NULL OR @SessionDate < CURRENT_TIMESTAMP - 1
+    BEGIN
+        SELECT 'Session date must be today or in the future.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @DurationMinutes IS NOT NULL AND @DurationMinutes <= 0
+    BEGIN
+        SELECT 'Duration must be a positive number of minutes.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Capacity IS NULL OR @Capacity <= 0
+    BEGIN
+        SELECT 'Capacity must be a positive number.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Mode IS NULL OR @Mode NOT IN ('Online', 'In Person', 'In-Person')
+    BEGIN
+        SELECT 'Mode must be Online or In Person.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Mode = 'Online' AND (@MeetingLink IS NULL OR @MeetingLink = '')
+    BEGIN
+        SELECT 'An online session needs a meeting link.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @Mode <> 'Online' AND (@Venue IS NULL OR @Venue = '')
+    BEGIN
+        SELECT 'An in-person session needs a venue.' AS ConfirmationMessage;
+        RETURN;
+    END
+
+    IF @RecordingAvailable IS NULL
+        SET @RecordingAvailable = 0;
+
+    INSERT INTO Training_Session (Title, Topic, SessionDescription, SessionDate, DurationMinutes, Trainer, Capacity, SessionStatus, ToolID)
+    VALUES (@Title, @Topic, @Description, @SessionDate, @DurationMinutes, @Trainer, @Capacity, 'Scheduled', @ToolID);
+
+    SELECT @SessionID = MAX(SessionID) FROM Training_Session;
+
+    IF @Mode = 'Online'
+        INSERT INTO Online_Training (SessionID, TrainingPlatform, MeetingLink, RecordingAvailable)
+        VALUES (@SessionID, @Platform, @MeetingLink, @RecordingAvailable);
+    ELSE
+        INSERT INTO In_Person_Training (SessionID, Venue, Campus, RequiredEquipment)
+        VALUES (@SessionID, @Venue, @Campus, @RequiredEquipment);
+
+    SELECT 'Training session scheduled successfully.' AS ConfirmationMessage, @SessionID AS SessionID;
+END;
+GO
+
+--13
+CREATE OR ALTER FUNCTION ViewTrainingAttendance (@SessionID INT)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT m.FullName,
+           m.AcademicRank,
+           m.Email
+    FROM Session_Attendance sa
+    INNER JOIN Academic_Member m ON m.MemberID = sa.MemberID
+    WHERE sa.SessionID = @SessionID
+);
+GO
+
+--14
+CREATE OR ALTER FUNCTION GetFacultyTrainingCompliance (@FacultyID INT)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT i.InitiativeID,
+           i.Title AS InitiativeTitle,
+           tr.RequirementID,
+           tr.RequirementDescription,
+           (SELECT COUNT(*)
+            FROM Initiative_Member im
+            WHERE im.InitiativeID = i.InitiativeID) AS AssignedMembers,
+           (SELECT COUNT(*)
+            FROM Initiative_Member im
+            WHERE im.InitiativeID = i.InitiativeID
+              AND EXISTS (SELECT *
+                          FROM Session_Attendance sa
+                          INNER JOIN Training_Session ts ON ts.SessionID = sa.SessionID
+                          WHERE sa.MemberID = im.MemberID
+                            AND ts.ToolID = tr.ToolID
+                            AND ts.SessionStatus = 'Completed')) AS AttendedMembers
+    FROM Innovation_Initiative i
+    INNER JOIN Training_Requirement tr ON tr.InitiativeID = i.InitiativeID
+    WHERE i.FacultyID = @FacultyID
+);
+GO
+
+--15
+CREATE OR ALTER FUNCTION GetInitiativeImpact (@InitiativeID INT)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT s.SemesterName,
+           r.MetricType,
+           r.BaselineValue,
+           r.QuantitativeValue AS MeasuredValue,
+           ROUND(100.0 * (r.QuantitativeValue - r.BaselineValue) / r.BaselineValue, 2) AS PercentageChange
+    FROM Outcome_Report r
+    INNER JOIN Semester s ON s.SemesterID = r.SemesterID
+    WHERE r.InitiativeID = @InitiativeID
+      AND r.BaselineValue > 0
+      AND r.QuantitativeValue IS NOT NULL
+
+    UNION ALL
+
+    SELECT s.SemesterName,
+           r.MetricType,
+           r.BaselineValue,
+           r.QuantitativeValue,
+           NULL
+    FROM Outcome_Report r
+    INNER JOIN Semester s ON s.SemesterID = r.SemesterID
+    WHERE r.InitiativeID = @InitiativeID
+      AND (r.BaselineValue IS NULL OR r.BaselineValue = 0 OR r.QuantitativeValue IS NULL)
+);
+GO
+
+--16
+CREATE OR ALTER FUNCTION GetAverageFeedbackRating (@InitiativeID INT, @SemesterID INT)
+RETURNS DECIMAL(3,2)
+AS
+BEGIN
+    DECLARE @Average DECIMAL(3,2);
+
+    SELECT @Average = AVG(1.0 * Rating)
+    FROM Student_Feedback
+    WHERE InitiativeID = @InitiativeID
+      AND SemesterID = @SemesterID;
+
+    RETURN @Average;
+END;
+GO
+
+--17
+CREATE OR ALTER FUNCTION GetFacultyDashboard (@FacultyID INT, @SemesterID INT)
+RETURNS TABLE
+AS
+RETURN
+(
+    SELECT
+        (SELECT COUNT(*)
+         FROM Innovation_Initiative i
+         WHERE i.FacultyID = @FacultyID
+           AND i.SemesterID = @SemesterID
+           AND i.InitiativeStatus = 'In Progress') AS ActiveInitiatives,
+
+        (SELECT COUNT(*)
+         FROM ViewFacultyPendingApprovals((SELECT DeanID FROM Faculty WHERE FacultyID = @FacultyID))) AS PendingApprovals,
+
+        (SELECT COUNT(*)
+         FROM Innovation_Initiative i
+         INNER JOIN Milestone ms ON ms.InitiativeID = i.InitiativeID
+         WHERE i.FacultyID = @FacultyID
+           AND i.SemesterID = @SemesterID
+           AND ms.MilestoneStatus <> 'Completed'
+           AND ms.DueDate < CURRENT_TIMESTAMP - 1) AS OverdueMilestones,
+
+        (SELECT AVG(100.0 * oa.TargetMet)
+         FROM Outcome_Assessment oa
+         INNER JOIN Outcome_Mapping om ON om.MappingID = oa.MappingID
+         INNER JOIN Program p ON p.ProgramID = om.ProgramID
+         WHERE p.FacultyID = @FacultyID
+           AND oa.SemesterID = @SemesterID) AS PercentAssessmentsMetTarget
+);
+GO
